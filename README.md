@@ -10,8 +10,9 @@ Based on Evan Keane's [fork](https://github.com/FRBs/sigproc) of Michael Keith's
 ## Dependencies
 
 * [Boost 1.70.0+](https://www.boost.org/)
-* [CMake 3.0+](https://cmake.org/download/)
-* [{fmt} 7.1.2+](https://fmt.dev/latest/index.html)
+* [CMake 3.11+](https://cmake.org/download/)
+* [{fmt} 7.1.3+](https://fmt.dev/latest/index.html)
+* [CLI11 1.9.1+](https://cliutils.github.io/CLI11/book/)
 
 ## Installation
 
