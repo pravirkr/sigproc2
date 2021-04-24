@@ -1,0 +1,101 @@
+name: Build
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        gcc: [6, 8]
+    env:
+      # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+      BUILD_TYPE: Release
+      build_dir: "build"
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    - uses: actions/checkout@v2
+
+    # Specify the correct host compilers
+    - name: Install/Select gcc and g++
+      env:
+        gcc: ${{ matrix.gcc }}
+      run: |
+        sudo apt-get -y install gcc-${gcc} g++-${gcc}
+        echo "CC=/usr/bin/gcc-${gcc}" >> $GITHUB_ENV
+        echo "CXX=/usr/bin/g++-${gcc}" >> $GITHUB_ENV
+
+    - name: Install boost libraries, CMake and clang tools
+      # The CMake binaries on the Github Actions machines are (as of this writing) 3.12
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install git build-essential cmake clang-tidy clang-format doxygen
+        sudo apt-get -y install libboost-all-dev
+
+    - name: Install Sphinx, breathe, and sphinx_rtd_theme
+      run: |
+        sudo pip3 install sphinx
+        sudo pip3 install breathe
+        sudo pip3 install sphinx_rtd_theme
+
+    - name: Configure CMake
+      shell: bash
+      id: configure
+      run: cmake . -B ${{ env.build_dir }} -Werror=dev -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DENABLE_CLANG_TIDY=ON
+
+    - name: Configure Error Processing
+      working-directory: ${{ env.build_dir }}
+      shell: bash
+      if: ${{ failure() && steps.configure.outcome == 'failure' }}
+      run: |
+        if [[ -f "CMakeFiles/CMakeOutput.log" ]]; then
+          echo "---- CMakeFiles/CMakeOutput.log"
+          cat CMakeFiles/CMakeOutput.log
+          echo "----"
+        fi
+        if [[ -f "CMakeFiles/CMakeError.log" ]]; then
+          echo "---- CMakeFiles/CMakeError.log"
+          cat CMakeFiles/CMakeError.log
+          echo "----"
+        fi
+
+    - name: Build
+      working-directory: ${{ env.build_dir }}
+      shell: bash
+      run: |
+        cmake --build . --config $BUILD_TYPE --target all --verbose
+
+    - name: Run clang-tidy
+      env:
+        PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        COMMIT: ${GITHUB_SHA}
+      working-directory: ${{ env.build_dir }}
+      shell: bash
+      # 1. Run Clang-Tidy
+      # 2. Convert the Clang-Tidy output to a format that the Codacy API accepts
+      # 3. Send the results to Codacy
+      # 4. Signal that Codacy can use the sent results and start a new analysis
+
+      run: |
+        wget https://github.com/codacy/codacy-clang-tidy/releases/download/1.2.4/codacy-clang-tidy-1.2.4
+        chmod u+x codacy-clang-tidy-1.2.4
+        make tidy | \
+        ./codacy-clang-tidy-1.2.4 | \
+        curl -XPOST -L -H "project-token: $PROJECT_TOKEN" \
+            -H "Content-type: application/json" -d @- \
+            "https://api.codacy.com/2.0/commit/$COMMIT/issuesRemoteResults"
+
+        curl -XPOST -L -H "project-token: $PROJECT_TOKEN" \
+          -H "Content-type: application/json" \
+          "https://api.codacy.com/2.0/commit/$COMMIT/resultsFinal"
