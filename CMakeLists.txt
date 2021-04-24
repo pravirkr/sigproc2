@@ -25,20 +25,20 @@ include_directories(${Boost_INCLUDE_DIRS})
 # search for CMake configuration file for CLI11
 find_package(CLI11 1.9.1 CONFIG QUIET)
 if(CLI11_FOUND)
-  message(STATUS "Found {CLI11}: ${CLI11_DIR} (found version '${CLI11_VERSION}')")
+  message(STATUS "Found CLI11: ${CLI11_DIR} (found version '${CLI11_VERSION}')")
 else(CLI11_FOUND)
-  message(STATUS "No local {CLI11} installation found. Downloading from Git...")
+  message(STATUS "No local CLI11 installation found. Downloading from Git...")
   FetchContent_Declare(
     CLI11
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG 1.9.1)
+    GIT_TAG v1.9.1)
   FetchContent_GetProperties(CLI11)
-  if(NOT CLI11_POPULATED)
+  if(NOT cli11_POPULATED)
     FetchContent_Populate(CLI11)
-    message(STATUS "{CLI11} source dir: ${CLI11_SOURCE_DIR}")
-    add_subdirectory(${CLI11_SOURCE_DIR} ${CLI11_BINARY_DIR} EXCLUDE_FROM_ALL)
+    message(STATUS "CLI11 source dir: ${cli11_SOURCE_DIR}")
+    add_subdirectory(${cli11_SOURCE_DIR} ${cli11_BINARY_DIR} EXCLUDE_FROM_ALL)
   endif()
-  message(STATUS "{CLI11} include dir: ${CLI11_SOURCE_DIR}/include")
+  message(STATUS "CLI11 include dir: ${cli11_SOURCE_DIR}/include")
 endif(CLI11_FOUND)
 
 # search for CMake configuration file for fmt

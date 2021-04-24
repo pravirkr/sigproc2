@@ -1,7 +1,7 @@
 /*
    header - show header parameters in a data file
  */
-#include <CLI/CLI11.hpp>
+#include <CLI/CLI.hpp>
 
 #include <sigproc/filterbank.hpp>
 

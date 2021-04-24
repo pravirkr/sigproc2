@@ -6,7 +6,7 @@
 #include <tuple>
 #include <cmath>
 
-#include <CLI/CLI11.hpp>
+#include <CLI/CLI.hpp>
 #include <sigproc/filterbank.hpp>
 #include <sigproc/filterbank_output.hpp>
 

@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include <fmt/ostream.h>
-#include <CLI/CLI11.hpp>
+#include <CLI/CLI.hpp>
 #include <sigproc/filterbank.hpp>
 
 #include "kernels.hpp"
