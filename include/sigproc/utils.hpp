@@ -26,4 +26,5 @@ std::string printNameOfType() {
     return boost::typeindex::type_id<T>().pretty_name();
 }
 
+
 }  // namespace utils

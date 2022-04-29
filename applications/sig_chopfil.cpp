@@ -7,8 +7,7 @@
 #include <cmath>
 
 #include <CLI/CLI.hpp>
-#include <sigproc/filterbank.hpp>
-#include <sigproc/filterbank_output.hpp>
+#include <sigproc/io.hpp>
 
 int main(int argc, char** argv) {
     CLI::App app{"chop_fil: splits a fil file in time"};
@@ -33,30 +32,30 @@ int main(int argc, char** argv) {
                    "number of time samples to read at a given time(def=512)");
     CLI11_PARSE(app, argc, argv);
 
-    SigprocFilterbank sigfile(filename);
+    FilterbankReader filreader(filename);
 
-    int nstart = (int)std::rint(tstart / sigfile.hdr.get<double>("tsamp"));
-    int nsamp  = (int)std::rint(total_time / sigfile.hdr.get<double>("tsamp"));
+    int nstart = (int)std::rint(tstart / filreader.hdr.get<double>("tsamp"));
+    int nsamp = (int)std::rint(total_time / filreader.hdr.get<double>("tsamp"));
 
-    SigprocOutFile out_sigfile(outfile, sigfile.hdr);
+    FilterbankWriter filwriter(outfile, filreader.hdr);
 
     int stride_len
-        = sigfile.hdr.get<int>("nchans") * sigfile.hdr.get<int>("nifs");
+        = filreader.hdr.get<int>("nchans") * filreader.hdr.get<int>("nifs");
 
     std::vector<float> out_arr(gulp * stride_len, 0);
     std::vector<float> block;
 
     std::vector<readplan_tuple> plan_blocks
-        = sigfile.get_readplan(gulp, 0, nstart, nsamp);
-    sigfile.seek_sample(nstart);  // start sample = nstart
+        = filreader.get_readplan(gulp, 0, nstart, nsamp);
+    filreader.seek_sample(nstart);  // start sample = nstart
 
     int block_len, skip, nsamps;
     for (const auto& tup : plan_blocks) {
         block_len = std::get<1>(tup);
         skip      = std::get<2>(tup);
-        nsamps    = (int)(block_len / sigfile.hdr.get<int>("nchans"));
-        sigfile.readplan(block_len, block, skip);
-        out_sigfile.writeBlock(out_arr, nsamps * stride_len);
+        nsamps    = (int)(block_len / filreader.hdr.get<int>("nchans"));
+        filreader.read_plan(block_len, block, skip);
+        filwriter.write_block(out_arr, nsamps * stride_len);
     };
 
     return 0;

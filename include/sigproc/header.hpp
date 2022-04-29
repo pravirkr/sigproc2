@@ -7,9 +7,37 @@
 #include <iostream>
 #include <fstream>
 
-#include "header_params.hpp"
+#include <sigproc/params.hpp>
+#include <sigproc/utils.hpp>
+
 #include "angles.hpp"
-#include "utils.hpp"
+
+std::string get_telescope_name(int telescope_id) {
+    if (utils::exists_key(telescope_ids, telescope_id)) {
+        return telescope_ids.at(telescope_id);
+    } else {
+        std::string msg = fmt::format("Cannot find key {}.", telescope_id);
+        throw std::invalid_argument(msg);
+    }
+}
+
+std::string get_backend_name(int machine_id) {
+    if (utils::exists_key(machine_ids, machine_id)) {
+        return machine_ids.at(machine_id);
+    } else {
+        std::string msg = fmt::format("Cannot find key {}.", machine_id);
+        throw std::invalid_argument(msg);
+    }
+}
+
+std::string get_datatype(int datatype) {
+    if (utils::exists_key(data_types, datatype)) {
+        return data_types.at(datatype);
+    } else {
+        std::string msg = fmt::format("Cannot find key {}.", datatype);
+        throw std::invalid_argument(msg);
+    }
+}
 
 /**
  * @brief Class for handling of sigproc format headers.
@@ -23,20 +51,20 @@ public:
      * Initializes all values to zero.
      */
     SigprocHeader() {
-        std::map<std::string, sig_type> header_keys = sigproc_keys;
+        std::map<std::string, key_type> header_keys = sigproc_keys;
         header_keys.insert(extra_keys.begin(), extra_keys.end());
         for (const auto& param : header_keys) {
             switch (param.second) {
-                case sig_type::sInt:
+                case key_type::sInt:
                     set(param.first, 0);
                     break;
-                case sig_type::sDouble:
+                case key_type::sDouble:
                     set(param.first, 0.0);
                     break;
-                case sig_type::sBool:
+                case key_type::sBool:
                     set(param.first, false);
                     break;
-                case sig_type::sString:
+                case key_type::sString:
                     set(param.first, std::string());
                     break;
             }
@@ -100,26 +128,26 @@ public:
     }
 
     template <class BinaryStream>
-    void write_toFile(BinaryStream& stream) {
+    void tofile(BinaryStream& stream) {
         write_string(stream, "HEADER_START");
         for (const auto& param : sigproc_keys) {
             switch (param.second) {
-                case sig_type::sInt:
+                case key_type::sInt:
                     write_value<int>(stream, param.first,
                                      get<int>(param.first));
                     break;
 
-                case sig_type::sDouble:
+                case key_type::sDouble:
                     write_value<double>(stream, param.first,
                                         get<double>(param.first));
                     break;
 
-                case sig_type::sBool:
+                case key_type::sBool:
                     write_value<bool>(stream, param.first,
                                       get<bool>(param.first));
                     break;
 
-                case sig_type::sString:
+                case key_type::sString:
                     write_string(stream, param.first);
                     write_string(stream, get<std::string>(param.first));
                     break;
@@ -141,7 +169,7 @@ public:
      * @return false if the data file is not in standard format
      */
     template <class BinaryStream>
-    bool read_fromFile(BinaryStream& stream) {
+    bool fromfile(BinaryStream& stream) {
         int header_size, data_size, file_size;
         std::string token;
         token = read_string(stream);
@@ -157,21 +185,21 @@ public:
                 break;
             }
             if (utils::exists_key(sigproc_keys, token)) {
-                sig_type type = sigproc_keys.at(token);
+                key_type type = sigproc_keys.at(token);
                 switch (type) {
-                    case sig_type::sInt:
+                    case key_type::sInt:
                         set(token, read_value<int>(stream));
                         break;
 
-                    case sig_type::sDouble:
+                    case key_type::sDouble:
                         set(token, read_value<double>(stream));
                         break;
 
-                    case sig_type::sBool:
+                    case key_type::sBool:
                         set(token, read_value<bool>(stream));
                         break;
 
-                    case sig_type::sString:
+                    case key_type::sString:
                         set(token, read_string(stream));
                         break;
                 }
@@ -201,7 +229,7 @@ public:
     }
 
 private:
-    std::map<std::string, sig_hdr_types> data;
+    std::map<std::string, sighdr_types> data;
 
     void update_internal() {
         set("telescope", get_telescope_name(get<int>("telescope_id")));

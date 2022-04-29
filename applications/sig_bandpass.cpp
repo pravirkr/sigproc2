@@ -5,8 +5,8 @@
 
 #include <fmt/ostream.h>
 #include <CLI/CLI.hpp>
-#include <sigproc/filterbank.hpp>
 
+#include <sigproc/io.hpp>
 #include "kernels.hpp"
 
 int main(int argc, char** argv) {
@@ -32,26 +32,26 @@ int main(int argc, char** argv) {
                    "number of time samples to read at a given time(def=512)");
     CLI11_PARSE(app, argc, argv);
 
-    SigprocFilterbank sigfile(filename);
+    FilterbankReader filreader(filename);
 
     /* set number of dumps to average over if user has supplied seconds */
-    int nstart = (int)std::rint(tstart / sigfile.hdr.get<double>("tsamp"));
-    int nsamp  = (int)std::rint(total_time / sigfile.hdr.get<double>("tsamp"));
-    int nchans = sigfile.hdr.get<int>("nchans");
+    int nstart = (int)std::rint(tstart / filreader.hdr.get<double>("tsamp"));
+    int nsamp  = (int)std::rint(total_time / filreader.hdr.get<double>("tsamp"));
+    int nchans = filreader.hdr.get<int>("nchans");
 
     /* initialize buffer for storing bandpass */
     std::vector<double> chanFreqs(nchans, 0);
     std::vector<double> bandpass(nchans, 0);
 
     for (int ichan = 0; ichan < nchans; ++ichan) {
-        chanFreqs[ichan] = ichan * sigfile.hdr.get<double>("foff")
-                           + sigfile.hdr.get<double>("fch1");
+        chanFreqs[ichan] = ichan * filreader.hdr.get<double>("foff")
+                           + filreader.hdr.get<double>("fch1");
     }
 
     std::vector<float> block;
     std::vector<readplan_tuple> plan_blocks
-        = sigfile.get_readplan(gulp, 0, nstart, nsamp);
-    sigfile.seek_sample(nstart);  // start sample = nstart
+        = filreader.get_readplan(gulp, 0, nstart, nsamp);
+    filreader.seek_sample(nstart);  // start sample = nstart
 
     int block_len, skip, nsamps;
     int num_samples = 0;
@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
         block_len = std::get<1>(tup);
         skip      = std::get<2>(tup);
         nsamps    = (int)(block_len / nchans);
-        sigfile.readplan(block_len, block, skip);
+        filreader.read_plan(block_len, block, skip);
         sigproc::getBpass(block.data(), bandpass.data(), nchans, nsamps);
         num_samples += nsamps;
     };

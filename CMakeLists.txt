@@ -97,16 +97,16 @@ include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${external_headers} )
 add_library(libsigproc SHARED ${src_files})
 target_link_libraries(libsigproc PRIVATE ${ALL_LIBRARIES})
 
-add_executable(header ${PROJECT_SOURCE_DIR}/applications/header.cpp)
+add_executable(header ${PROJECT_SOURCE_DIR}/applications/sig_header.cpp)
 target_link_libraries(header PRIVATE libsigproc ${ALL_LIBRARIES})
 
-add_executable(decimate ${PROJECT_SOURCE_DIR}/applications/decimate.cpp)
+add_executable(decimate ${PROJECT_SOURCE_DIR}/applications/sig_decimate.cpp)
 target_link_libraries(decimate PRIVATE libsigproc ${ALL_LIBRARIES})
 
-add_executable(bandpass ${PROJECT_SOURCE_DIR}/applications/bandpass.cpp)
+add_executable(bandpass ${PROJECT_SOURCE_DIR}/applications/sig_bandpass.cpp)
 target_link_libraries(bandpass PRIVATE libsigproc ${ALL_LIBRARIES})
 
-add_executable(chop_fil ${PROJECT_SOURCE_DIR}/applications/chop_fil.cpp)
+add_executable(chop_fil ${PROJECT_SOURCE_DIR}/applications/sig_chopfil.cpp)
 target_link_libraries(chop_fil PRIVATE libsigproc ${ALL_LIBRARIES})
 
 # ------------------------------------------------------------------------------

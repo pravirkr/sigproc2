@@ -1,15 +1,23 @@
 
 #include "fileIO.hpp"
 
-void FileIO::read_data(std::ifstream& stream, int nbits,
-                       std::vector<float>& block, int nread) {
+FileIO::FileIO(std::string filename, int nbits)
+    : nbits(nbits), bitsinfo(nbits) {
+    file_stream.open(filename.c_str(),
+                     std::ifstream::in | std::ifstream::binary);
+    ErrorChecker::check_file(file_stream, filename);
+}
+
+FileIO::~FileIO() { file_stream.close(); }
+
+void FileIO::read_data(std::vector<float>& block, int nread) {
     // decide how to read the data based on the number of bits per sample
     // read n/nbits bytes into character block containing n nbits-bit pairs
-    std::vector<uint8_t> buffer(nread * FileIO::get_itemsize(nbits));
-    stream.read(reinterpret_cast<char*>(buffer.data()),
-                buffer.size() / FileIO::get_bitfact(nbits));
+    std::vector<uint8_t> buffer(nread * bitsinfo.itemsize());
+    file_stream.read(reinterpret_cast<char*>(buffer.data()),
+                     buffer.size() / bitsinfo.bitfact());
 
-    if (nbits == 1 || nbits == 2 || nbits == 4) {
+    if (bitsinfo.packunpack()) {
         sigproc::unpackInPlace(buffer.data(), nbits, buffer.size());
     }
 
@@ -20,48 +28,26 @@ void FileIO::read_data(std::ifstream& stream, int nbits,
     block.assign(buffer_ptr, buffer_ptr + block.size());
 }
 
-void FileIO::write_data(std::ofstream& stream, int nbits,
-                        const std::vector<float>& block, int nwrite) {
+void FileIO::write_data(const std::vector<float>& block, int nwrite) {
     // decide how to read the data based on the number of bits per sample
     // write n/nbits bytes into character block containing n nbits-bit pairs
-    std::vector<uint8_t> buffer(nwrite * sizeof(float)/sizeof(uint8_t));
+    std::vector<uint8_t> buffer(nwrite * sizeof(float) / sizeof(uint8_t));
 
     const uint8_t* block_ptr = reinterpret_cast<const uint8_t*>(block.data());
     buffer.assign(block_ptr, block_ptr + buffer.size());
 
-    if (nbits == 1 || nbits == 2 || nbits == 4) {
+    if (bitsinfo.packunpack()) {
         sigproc::packInPlace(buffer.data(), nbits, buffer.size());
     }
 
-    stream.write(reinterpret_cast<const char*>(buffer.data()),
-                 buffer.size() / FileIO::get_bitfact(nbits));
+    file_stream.write(reinterpret_cast<const char*>(buffer.data()),
+                      buffer.size() / bitsinfo.bitfact());
 }
 
-std::size_t FileIO::get_itemsize(int nbits) {
-    std::size_t itemsize;
-    switch (nbits) {
-        case 1:
-        case 2:
-        case 4:
-        case 8:
-            itemsize = sizeof(uint8_t);
-            break;
-        case 16:
-            itemsize = sizeof(uint16_t);
-            break;
-        case 32:
-            itemsize = sizeof(float);
-            break;
-    }
-    return itemsize;
-}
-
-std::size_t FileIO::get_bitfact(int nbits) {
-    std::size_t bitfact;
-    if (nbits == 1 || nbits == 2 || nbits == 4) {
-        bitfact = CHAR_BIT / nbits;
+void FileIO::seek_bytes(int nbytes, bool offset) {
+    if (offset) {
+        file_stream.seekg(nbytes, std::ios_base::cur);
     } else {
-        bitfact = 1;
+        file_stream.seekg(nbytes);
     }
-    return bitfact;
 }

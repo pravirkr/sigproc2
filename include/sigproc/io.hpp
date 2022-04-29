@@ -7,41 +7,33 @@
 #include <stdexcept>
 #include <climits>  // CHAR_BIT (bits_per_byte)
 
+#include <sigproc/header.hpp>
+#include <sigproc/exceptions.hpp>
 #include "fileIO.hpp"
-#include "filterbank_header.hpp"
-#include "exceptions.hpp"
 
 using readplan_tuple = std::tuple<int, int, int>;
 
-class SigprocFilterbank {
+class FilterbankReader {
 public:
     SigprocHeader hdr;
 
     /**
      * Default constructor, takes a filename
      */
-    SigprocFilterbank(std::string filename) {
-        file_stream.open(filename.c_str(),
-                         std::ifstream::in | std::ifstream::binary);
-        ErrorChecker::check_file_error(file_stream, filename);
+    FilterbankReader(std::string filename) {
         // Read the header
-        hdr.read_fromFile(file_stream);
+        hdr.fromfile(filename);
+        nbits = hdr.get<int>("nbits");
 
-        nbits      = hdr.get<int>("nbits");
-        stride_len = hdr.get<int>("nchans") * hdr.get<int>("nifs");
+        fileio = new FileIO(filename, nbits);
 
-        bitfact     = FileIO::get_bitfact(nbits);
-        itemsize    = FileIO::get_itemsize(nbits);
+        bitfact     = fileio.bitsinfo.bitfact();
+        itemsize    = fileio.bitsinfo.itemsize();
+        stride_len  = hdr.get<int>("nchans") * hdr.get<int>("nifs");
         stride_size = stride_len * itemsize / bitfact;
     }
 
-    /*!
-      \brief Deconstruct a SigprocFilterbank object.
-
-      The deconstructor cleans up memory allocated when
-      reading data from file.
-    */
-    ~SigprocFilterbank() { file_stream.close(); }
+    ~FilterbankReader() { delete fileio; }
 
     std::vector<readplan_tuple> get_readplan(int gulp, int skipback = 0,
                                              int start = 0, int nsamps = 0) {
@@ -70,27 +62,45 @@ public:
         return blocks;
     }
 
-    void readplan(int block_len, std::vector<float>& block, int skip) {
-        FileIO::read_data(file_stream, nbits, block, block_len);
-        file_stream.seekg(skip * itemsize / bitfact, std::ios_base::cur);
+    void read_plan(int block_len, std::vector<float>& block, int skip) {
+        fileio.read_data(block, block_len);
+        fileio.seek_bytes(skip * itemsize / bitfact, offset = true);
     }
 
-    void readBlock(int start_sample, int nsamps, std::vector<float>& block) {
+    void read_block(int start_sample, int nsamps, std::vector<float>& block) {
         seek_sample(start_sample);
-        FileIO::read_data(file_stream, nbits, block, nsamps * stride_len);
+        fileio.read_data(block, nsamps * stride_len);
     }
 
     void seek_sample(int sample) {
-        // get to the right place in the file stream.
-        file_stream.seekg(hdr.get<int>("header_size") + sample * stride_size);
+        fileio.seek_bytes(hdr.get<int>("header_size")
+                          + start_sample * stride_size);
     }
 
 private:
-    std::ifstream file_stream;
     std::size_t bitfact;
     std::size_t itemsize;
     std::size_t stride_len;
     std::size_t stride_size;
+    int nbits;
+};
+
+class FilterbankWriter {
+public:
+    FilterbankWriter(std::string filename, SigprocHeader& hdr) {
+        nbits = hdr.get<int>("nbits");
+        // Write the header
+        hdr.tofile(filename);
+        FileIO fileio(filename, nbits);
+    }
+
+    ~FilterbankWriter() {}
+
+    void write_block(const std::vector<float>& block, int block_len) {
+        fileio.write_data(block, block_len);
+    }
+
+private:
     int nbits;
 };
 

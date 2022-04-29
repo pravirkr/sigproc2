@@ -2,23 +2,38 @@
 
 #include <vector>
 #include <fstream>
-#include <stdexcept>
-#include <climits>  // CHAR_BIT (bits_per_byte)
 
+#include <sigproc/exceptions.hpp>
+#include "bitsinfo.hpp"
 #include "pack_unpack.hpp"
 
-namespace FileIO {
+class FileIO {
+public:
+    int nbits;
+    BitsInfo bitsinfo;
+    /**
+     * @brief Construct a new File IO object
+     *
+     * @param filename The name of filename to read/write
+     * @param nbits number of bits in the data
+     */
+    FileIO(std::string filename, int nbits);
 
-/* read nread units of data from stream */
-void read_data(std::ifstream& stream, int nbits, std::vector<float>& block,
-               int nread);
+    /**
+     * @brief Destroy the File IO object
+     *
+     */
+    ~FileIO();
 
-/* write block of data to stream */
-void write_data(std::ofstream& stream, int nbits, const std::vector<float>& block,
-                int nread);
+    /* read nread units of data from stream */
+    void read_data(std::vector<float>& block, int nread);
 
-std::size_t get_itemsize(int nbits);
+    /* write block of data to stream */
+    void write_data(const std::vector<float>& block, int nread);
 
-std::size_t get_bitfact(int nbits);
+    /* get to the right place in the file stream. */
+    void seek_bytes(int nbytes, bool offset = false);
 
-}  // namespace FileIO
+private:
+    std::fstream file_stream;
+};

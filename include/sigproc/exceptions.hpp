@@ -6,10 +6,15 @@
 #include <sstream>
 #include <iostream>
 
+#include <fmt/core.h>
+
+#include <sigproc/params.hpp>
+#include <sigproc/utils.hpp>
+
 namespace ErrorChecker {
 
 template <class Tstream>
-void check_file_error(Tstream& stream, std::string filename) {
+static void check_file(Tstream& stream, std::string filename) {
     if (!stream.good()) {
         std::stringstream error_msg;
         error_msg << "File " << filename << " could not be opened: ";
@@ -24,6 +29,13 @@ void check_file_error(Tstream& stream, std::string filename) {
             error_msg << "End-of-File reached on input operation" << std::endl;
 
         throw std::runtime_error(error_msg.str());
+    }
+}
+
+void check_bits(int nbits) {
+    if (!utils::exists_key(nbits_to_sigmas, nbits)) {
+        std::string msg = fmt::format("nbits = {} not supported.", nbits);
+        throw std::invalid_argument(msg);
     }
 }
 

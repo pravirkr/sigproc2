@@ -3,7 +3,8 @@
  */
 #include <CLI/CLI.hpp>
 
-#include <sigproc/filterbank.hpp>
+#include <sigproc/params.hpp>
+#include <sigproc/io.hpp>
 
 void print_header(const SigprocHeader& hdr) {
     std::string format = "{:<33}: {}\n";
@@ -81,48 +82,6 @@ void print_header(const SigprocHeader& hdr) {
     fmt::print(format, "Number of IFs", hdr.get<int>("nifs"));
 }
 
-std::map<std::string, std::string> header_keys_help
-    = {{"rawdatafile", "original data file name"},
-       {"source_name", "source name"},
-       {"machine_id", "sigproc backend ID"},
-       {"backend", "datataking machine name"},
-       {"telescope_id", "sigproc telescope ID"},
-       {"telescope", "telescope name"},
-       {"data_type", "sigproc data type ID"},
-       {"datatype", "data type"},
-       {"nchans", "number of frequency channels"},
-       {"nbits", "number of bits per time sample"},
-       {"nifs", "number of IF channels"},
-       {"nbeams", "numbe rof beams"},
-       {"ibeam", "beam number"},
-       {"nsamples", "number of time samples"},
-       {"npuls", "telescope name"},
-       {"nbins", "telescope name"},
-       {"barycentric", "if data are barycentric"},
-       {"pulsarcentric", "if data are pulsarcentric"},
-       {"frame", "pulsar/bary/topocentric"},
-       {"signed", "if data are signed"},
-       {"tstart", "time stamp of first sample (MJD)"},
-       {"tsamp", "sample time (us)"},
-       {"tobs", "length of observation (s)"},
-       {"fch1", "frequency of channel 1 in MHz"},
-       {"foff", "channel bandwidth in MHz"},
-       {"ftop", "channel bandwidth in MHz"},
-       {"fbottom", "channel bandwidth in MHz"},
-       {"fcenter", "channel bandwidth in MHz"},
-       {"refdm", "reference dispersion measure"},
-       {"az_start", "telescope Azimuth angle (deg)"},
-       {"za_start", "telescope Zenith angle (deg)"},
-       {"src_raj", "right ascension (J2000 hhmmss.ss)"},
-       {"src_dej", "declination (J2000 ddmmss.ss)"},
-       {"ra", "right ascension ('hh:mm:ss.sss')"},
-       {"dec", "declination ('dd:mm:ss.sss')"},
-       {"ra_rad", "right ascension (radian)"},
-       {"dec_rad", "declination (radian)"},
-       {"period", "folding period (s)"},
-       {"obs_date", "gregorian date (YYYY-MM-DD)"},
-       {"headersize", "header size in bytes"},
-       {"datasize", "data size in bytes if known"}};
 
 void header_help() {
     for (const auto& param : header_keys_help) {
@@ -152,7 +111,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    SigprocFilterbank sigfile(filename);
+    FilterbankReader filreader(filename);
 
     if (!token.empty()) {
         std::map<std::string, sig_type> header_keys = sigproc_keys;
@@ -161,19 +120,19 @@ int main(int argc, char** argv) {
             sig_type type = header_keys.at(token);
             switch (type) {
                 case sig_type::sInt: {
-                    fmt::print("{}", sigfile.hdr.get<int>(token));
+                    fmt::print("{}", filreader.hdr.get<int>(token));
                     break;
                 }
                 case sig_type::sDouble: {
-                    fmt::print("{}", sigfile.hdr.get<double>(token));
+                    fmt::print("{}", filreader.hdr.get<double>(token));
                     break;
                 }
                 case sig_type::sBool: {
-                    fmt::print("{}", sigfile.hdr.get<bool>(token));
+                    fmt::print("{}", filreader.hdr.get<bool>(token));
                     break;
                 }
                 case sig_type::sString: {
-                    fmt::print("{}", sigfile.hdr.get<std::string>(token));
+                    fmt::print("{}", filreader.hdr.get<std::string>(token));
                     break;
                 }
             }
@@ -184,7 +143,7 @@ int main(int argc, char** argv) {
         }
     } else {
         /* no command-line flags were specified - display full output */
-        print_header(sigfile.hdr);
+        print_header(filreader.hdr);
     }
     return 0;
 }
