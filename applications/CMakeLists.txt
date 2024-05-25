@@ -1,0 +1,15 @@
+CPMFindPackage(
+  NAME CLI11
+  VERSION 2.4.0
+  GITHUB_REPOSITORY CLIUtils/CLI11
+)
+
+file(GLOB EXECUTABLE_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+
+foreach(SOURCE_FILE ${EXECUTABLE_SOURCES})
+  get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
+  add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
+  target_link_libraries(
+    ${EXECUTABLE_NAME} PRIVATE libsigproc CLI11::CLI11 ${ALL_LIBRARIES}
+  )
+endforeach()

@@ -1,7 +1,55 @@
-Checks: "-*,modernize*,-modernize-pass-by-value,-modernize-use-using,llvm-include-order,modernize-return-braced-init-list"
-#Checks: "clan*,cert*,misc*,perf*,cppc*,read*,mode*,-cert-err58-cpp,-misc-noexcept-move-constructor"
+---
+Checks: >
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  clang-analyzer-*,
+  clang-diagnostic-*,
+  concurrency-*,
+  cppcoreguidelines*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  google-*,
+  llvm-include-order,
+  misc-*,
+  -misc-non-private-member-variables-in-classes,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  openmp-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-identifier-length,
+  -readability-isolate-declaration,
+  -readability-magic-numbers,
 
+WarningsAsErrors: ''
 HeaderFilterRegex: ".*"
+FormatStyle: 'file'
 CheckOptions:
-  - key: readability-braces-around-statements.ShortStatementLines
-    value: "1"
+  - { key: readability-identifier-naming.ClassCase,               value: CamelCase  }
+  - { key: readability-identifier-naming.ClassMemberCase,         value: lower_case }
+  - { key: readability-identifier-naming.EnumCase,                value: CamelCase  }
+  - { key: readability-identifier-naming.FunctionCase,            value: lower_case }
+  - { key: readability-identifier-naming.MacroDefinitionCase,     value: UPPER_CASE }
+  - { key: readability-identifier-naming.MemberCase,              value: lower_case }
+  - { key: readability-identifier-naming.PrivateMemberPrefix,     value: m_         }
+  - { key: readability-identifier-naming.ProtectedMemberPrefix,   value: m_         }
+  - { key: readability-identifier-naming.NamespaceCase,           value: lower_case }
+  - { key: readability-identifier-naming.ParameterCase,           value: lower_case }
+  - { key: readability-identifier-naming.TypeAliasCase,           value: CamelCase  }
+  - { key: readability-identifier-naming.TypedefCase,             value: CamelCase  }
+  - { key: readability-identifier-naming.VariableCase,            value: lower_case }
+  - { key: readability-identifier-naming.StaticVariableCase,      value: lower_case }
+  - { key: readability-identifier-naming.ConstexprVariableCase,   value: CamelCase  }
+  - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k          }
+  - { key: readability-identifier-naming.EnumConstantCase,        value: CamelCase  }
+  - { key: readability-identifier-naming.EnumConstantPrefix,      value: k          }
+  - { key: readability-identifier-naming.GlobalConstantCase,      value: CamelCase  }
+  - { key: readability-identifier-naming.GlobalConstantPrefix,    value: k          }
+  - { key: readability-identifier-naming.MemberConstantCase,      value: CamelCase  }
+  - { key: readability-identifier-naming.MemberConstantPrefix,    value: k          }
+  - { key: readability-identifier-naming.StaticConstantCase,      value: CamelCase  }
+  - { key: readability-identifier-naming.StaticConstantPrefix,    value: k          }
+  - { key: readability-identifier-naming.StructCase,              value: CamelCase  }
+  - { key: readability-identifier-naming.TemplateParameterCase,   value: CamelCase  }
+...

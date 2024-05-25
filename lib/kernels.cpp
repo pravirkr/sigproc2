@@ -1,12 +1,12 @@
 
-//#include <boost/math/special_functions/erf.hpp>
-// erfc(T z);
+#include <sigproc/kernels.hpp>
 
 namespace sigproc {
 
-void add_channels(float* inbuffer, float* outbuffer, int chan_start, int nchans,
-                  int nsamps, int index) {
-#pragma omp parallel for default(shared)
+void add_channels(std::span<const float> inbuffer, std::span<float> outbuffer,
+                  int chan_start, int nchans, int nsamps, int index) {
+#pragma omp parallel for default(none)                                         \
+    shared(inbuffer, outbuffer, chan_start, nchans, nsamps, index)
     for (int ii = 0; ii < nsamps; ii++) {
         for (int jj = chan_start; jj < chan_start + nchans; jj++) {
             outbuffer[index + ii] += inbuffer[(nchans * ii) + jj];
@@ -15,22 +15,24 @@ void add_channels(float* inbuffer, float* outbuffer, int chan_start, int nchans,
 }
 
 template <class T>
-void add_samples(float* inbuffer, double* outbuffer, int nchans, int nsamps,
-                 int nifs) {
-#pragma omp parallel for default(shared)
+void add_samples(std::span<const float> inbuffer, std::span<double> outbuffer,
+                 int nchans, int nsamps, int nifs) {
+#pragma omp parallel for default(none)                                         \
+    shared(inbuffer, outbuffer, nchans, nsamps, nifs)
     for (int ipol = 0; ipol < nifs; ipol++) {
         for (int jj = 0; jj < nchans; jj++) {
             for (int ii = 0; ii < nsamps; ii++) {
-                outbuffer[(nchans * ipol) + jj]
-                    += inbuffer[(nifs * nchans * ii) + (nchans * ipol) + jj];
+                outbuffer[(nchans * ipol) + jj] +=
+                    inbuffer[(nifs * nchans * ii) + (nchans * ipol) + jj];
             }
         }
     }
 }
 
-
-void getBpass(float* inbuffer, double* outbuffer, int nchans, int nsamps) {
-#pragma omp parallel for default(shared)
+void get_bpass(std::span<const float> inbuffer, std::span<double> outbuffer,
+               int nchans, int nsamps) {
+#pragma omp parallel for default(none)                                         \
+    shared(inbuffer, outbuffer, nchans, nsamps)
     for (int jj = 0; jj < nchans; jj++) {
         for (int ii = 0; ii < nsamps; ii++) {
             outbuffer[jj] += inbuffer[(nchans * ii) + jj];
@@ -38,30 +40,30 @@ void getBpass(float* inbuffer, double* outbuffer, int nchans, int nsamps) {
     }
 }
 
-
-void downsample(float* inbuffer, float* outbuffer, int tfactor, int ffactor,
-                int nchans, int nsamps) {
-    int pos;
-    float temp;
+void downsample(std::span<const float> inbuffer, std::span<float> outbuffer,
+                int tfactor, int ffactor, int nchans, int nsamps) {
     int newnsamps = nsamps / tfactor;
     int newnchans = nchans / ffactor;
     int totfactor = ffactor * tfactor;
-#pragma omp parallel for default(shared)
+#pragma omp parallel for default(none)                                         \
+    shared(inbuffer, outbuffer, nchans, nsamps, newnsamps, newnchans, tfactor, \
+               ffactor, totfactor)
     for (int ii = 0; ii < newnsamps; ii++) {
         for (int jj = 0; jj < newnchans; jj++) {
-            temp = 0;
-            pos  = nchans * ii * tfactor + jj * ffactor;
+            float temp = 0;
+            int pos    = nchans * ii * tfactor + jj * ffactor;
             for (int kk = 0; kk < tfactor; kk++) {
                 for (int ll = 0; ll < ffactor; ll++) {
                     temp += inbuffer[kk * nchans + ll + pos];
                 }
             }
-            outbuffer[ii * newnchans + jj] = temp / totfactor;
+            outbuffer[ii * newnchans + jj] =
+                temp / static_cast<float>(totfactor);
         }
     }
 }
 
-}  // namespace sigproc
+} // namespace sigproc
 
 /*
 template <typename T>
