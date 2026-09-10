@@ -1,10 +1,13 @@
+#pragma once
+
 #include <format>
 #include <stdexcept>
+#include <string>
 
-#include <sigproc/exceptions.hpp>
+namespace sigproc::error_check {
 
 template <class Tstream>
-void ErrorChecker::check_stream(Tstream& stream, const std::string& filename) {
+void check_stream(Tstream& stream, const std::string& filename) {
     if (!stream.good()) {
         auto error_msg = std::format("File {} could not be opened: ", filename);
         if (stream.eof()) {
@@ -19,3 +22,5 @@ void ErrorChecker::check_stream(Tstream& stream, const std::string& filename) {
         throw std::runtime_error(error_msg);
     }
 }
+
+} // namespace sigproc::error_check

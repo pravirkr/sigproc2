@@ -10,6 +10,6 @@ foreach(SOURCE_FILE ${EXECUTABLE_SOURCES})
   get_filename_component(EXECUTABLE_NAME ${SOURCE_FILE} NAME_WE)
   add_executable(${EXECUTABLE_NAME} ${SOURCE_FILE})
   target_link_libraries(
-    ${EXECUTABLE_NAME} PRIVATE libsigproc CLI11::CLI11 ${ALL_LIBRARIES}
+    ${EXECUTABLE_NAME} PRIVATE ${SIG_LIBRARY_NAME} CLI11::CLI11
   )
 endforeach()

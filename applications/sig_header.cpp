@@ -4,8 +4,8 @@
 #include <CLI/CLI.hpp>
 #include <fmt/core.h>
 
+#include <sigproc/common/params.hpp>
 #include <sigproc/io.hpp>
-#include <sigproc/params.hpp>
 
 void print_header(const SigprocHeader& hdr) {
     constexpr auto kFormat = "{:<33}: {}\n";

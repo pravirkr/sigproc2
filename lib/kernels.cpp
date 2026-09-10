@@ -1,7 +1,6 @@
+#include "sigproc/kernels.hpp"
 
-#include <sigproc/kernels.hpp>
-
-namespace sigproc {
+namespace sigproc::kernels {
 
 void add_channels(std::span<const float> inbuffer, std::span<float> outbuffer,
                   int chan_start, int nchans, int nsamps, int index) {
@@ -14,7 +13,6 @@ void add_channels(std::span<const float> inbuffer, std::span<float> outbuffer,
     }
 }
 
-template <class T>
 void add_samples(std::span<const float> inbuffer, std::span<double> outbuffer,
                  int nchans, int nsamps, int nifs) {
 #pragma omp parallel for default(none)                                         \
@@ -51,19 +49,19 @@ void downsample(std::span<const float> inbuffer, std::span<float> outbuffer,
     for (int ii = 0; ii < newnsamps; ii++) {
         for (int jj = 0; jj < newnchans; jj++) {
             float temp = 0;
-            int pos    = nchans * ii * tfactor + jj * ffactor;
+            int pos    = (nchans * ii * tfactor) + (jj * ffactor);
             for (int kk = 0; kk < tfactor; kk++) {
                 for (int ll = 0; ll < ffactor; ll++) {
-                    temp += inbuffer[kk * nchans + ll + pos];
+                    temp += inbuffer[(kk * nchans) + ll + pos];
                 }
             }
-            outbuffer[ii * newnchans + jj] =
+            outbuffer[(ii * newnchans) + jj] =
                 temp / static_cast<float>(totfactor);
         }
     }
 }
 
-} // namespace sigproc
+} // namespace sigproc::kernels
 
 /*
 template <typename T>

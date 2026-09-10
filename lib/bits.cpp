@@ -1,13 +1,14 @@
+#include "sigproc/bits.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
-#ifdef USE_OPENMP
-#include <omp.h>
-#endif
 
-#include <sigproc/numbits.hpp>
+#include <omp.h>
+
+namespace sigproc::bits {
 
 constexpr unsigned char kHI4BITS    = 240;
 constexpr unsigned char kLO4BITS    = 15;
@@ -395,9 +396,8 @@ size_t get_bitorder_index(const std::string& bitorder) {
     return (bitorder[0] == 'b') ? 1 : 0;
 }
 
-void sigproc::unpack(std::span<const uint8_t> inbuffer,
-                     std::span<uint8_t> outbuffer, size_t nbits,
-                     const std::string& bitorder, bool parallel) {
+void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
+            size_t nbits, const std::string& bitorder, bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -408,9 +408,9 @@ void sigproc::unpack(std::span<const uint8_t> inbuffer,
                                                                    outbuffer);
 }
 
-void sigproc::unpack_lookup(std::span<const uint8_t> inbuffer,
-                            std::span<uint8_t> outbuffer, size_t nbits,
-                            const std::string& bitorder, bool parallel) {
+void unpack_lookup(std::span<const uint8_t> inbuffer,
+                   std::span<uint8_t> outbuffer, size_t nbits,
+                   const std::string& bitorder, bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -421,8 +421,8 @@ void sigproc::unpack_lookup(std::span<const uint8_t> inbuffer,
         inbuffer, outbuffer);
 }
 
-void sigproc::unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
-                              const std::string& bitorder) {
+void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
+                     const std::string& bitorder) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -431,9 +431,8 @@ void sigproc::unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
     kUnpackInPlaceDispatcher[nbits_index][bitorder_index](inbuffer);
 }
 
-void sigproc::pack(std::span<const uint8_t> inbuffer,
-                   std::span<uint8_t> outbuffer, size_t nbits,
-                   const std::string& bitorder, bool parallel) {
+void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
+          size_t nbits, const std::string& bitorder, bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -444,8 +443,8 @@ void sigproc::pack(std::span<const uint8_t> inbuffer,
                                                                  outbuffer);
 }
 
-void sigproc::pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
-                           const std::string& bitorder) {
+void pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
+                  const std::string& bitorder) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -453,3 +452,44 @@ void sigproc::pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
     const size_t nbits_index    = nbits >> 1;
     kPackInPlaceDispatcher[nbits_index][bitorder_index](inbuffer);
 }
+
+BitsInfo::BitsInfo(SizeType nbits)
+    : m_nbits(nbits),
+      m_attr_index(nbits_to_index(nbits)) {
+    if (m_attr_index == -1) {
+        throw std::invalid_argument(std::format(
+            "nbits = {} not supported. Valid values: 1, 2, 4, 8, 16, 32",
+            nbits));
+    }
+}
+SizeType BitsInfo::get_itemsize() const noexcept {
+    return kAttributes[m_attr_index].itemsize;
+}
+constexpr bool BitsInfo::get_can_pack_unpack() const noexcept {
+    return m_nbits == 1 || m_nbits == 2 || m_nbits == 4;
+}
+constexpr SizeType BitsInfo::get_bitfact() const noexcept {
+    return get_can_pack_unpack() ? CHAR_BIT / m_nbits : 1;
+}
+constexpr SizeType BitsInfo::get_digi_max() const noexcept {
+    return (1U << m_nbits) - 1;
+}
+float BitsInfo::get_digi_mean() const noexcept {
+    return static_cast<float>((1U << (m_nbits - 1)) - 0.5);
+}
+float BitsInfo::get_digi_scale() const noexcept {
+    return get_digi_mean() / kAttributes[m_attr_index].digi_sigma;
+}
+float BitsInfo::get_digi_sigma() const noexcept {
+    return kAttributes[m_attr_index].digi_sigma;
+}
+constexpr IndexType BitsInfo::nbits_to_index(SizeType nbits) noexcept {
+    for (size_t i = 0; i < kValidNbits.size(); ++i) {
+        if (kValidNbits[i] == nbits) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
+} // namespace sigproc::bits

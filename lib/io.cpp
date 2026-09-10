@@ -1,113 +1,112 @@
-#include <fstream>
+#include "sigproc/io.hpp"
+
+#include <filesystem>
+#include <format>
+#include <string>
 #include <vector>
-#include <tuple>
-#include <algorithm>
-#include <stdexcept>
-#include <climits> 
 
-#include <sigproc/io.hpp>
+#include <sigproc/detail/exceptions.hpp>
+#include <sigproc/detail/utils.hpp>
 
-using readplan_tuple = std::tuple<int, int, int>;
+namespace sigproc::io {
 
-FilReader::FilReader(std::string filename) {
-    hdr.fromfile(filename);
-    nbits       = hdr.get<int>("nbits");
-    bitfact     = fileio.bitsinfo.bitfact();
-    itemsize    = fileio.bitsinfo.itemsize();
-    stride_len  = hdr.get<int>("nchans") * hdr.get<int>("nifs");
-    stride_size = stride_len * itemsize / bitfact;
+namespace fs = std::filesystem;
+
+FileBase::FileBase(const std::vector<std::string>& filenames, std::string mode)
+    : m_filenames(filenames),
+      m_mode(std::move(mode)) {
+    if (filenames.empty()) {
+        throw std::invalid_argument("Empty file list");
+    }
+    open_file(0);
+}
+FileBase::~FileBase() { close_current(); }
+
+bool FileBase::eos() const {
+    // First check if we are at the end of the current file
+    bool eof = m_file_stream.tellg() == fs::file_size(m_filenames[m_ifileCur]);
+    // Now check if we are at the end of the list of files
+    bool eol = m_ifileCur == m_filenames.size() - 1;
+    return eof && eol;
 }
 
-FilReader::~FilReader() { delete fileio; }
+void FileBase::open_file(size_t ifile) {
+    if (ifile < 0 || ifile >= m_filenames.size()) {
+        throw std::out_of_range(std::format("Invalid file index: {}", ifile));
+    }
+    if (!fs::exists(m_filenames[ifile])) {
+        throw std::invalid_argument(
+            std::format("File does not exist: {}", m_filenames[ifile]));
+    }
 
-std::vector<readplan_tuple> FilReader::get_readplan(int gulp, int skipback = 0,
-                                                    int start  = 0,
-                                                    int nsamps = 0) {
-    if (nsamps == 0) {
-        nsamps = hdr.get<int>("nsamples") - start;
+    if (ifile != m_ifileCur) {
+        close_current();
+        auto file_mode = detail::map_utils::get_value(m_modeMap, m_mode);
+        m_file_stream.open(m_filenames[ifile].c_str(), file_mode);
+        error_check::check_stream(m_file_stream, m_filenames[ifile]);
+        m_ifileCur = ifile;
     }
-    gulp     = std::min(nsamps, gulp);
-    skipback = std::abs(skipback);
-    if (skipback >= gulp) {
-        std::runtime_error("readsamps must be > skipback value");
-    }
-    int nreads   = (int)nsamps / (gulp - skipback);
-    int lastread = nsamps - (nreads * (gulp - skipback));
-    if (lastread < skipback) {
-        nreads -= 1;
-        lastread = nsamps - (nreads * (gulp - skipback));
-    }
-    std::vector<readplan_tuple> blocks;
-    for (int iread = 0; iread < nreads; ++iread) {
-        blocks.push_back(
-            readplan_tuple(iread, gulp * stride_len, -skipback * stride_len));
-    }
-    if (lastread != 0) {
-        blocks.push_back(readplan_tuple(nreads, lastread * stride_len, 0));
-    }
-    return blocks;
 }
 
-void FilReader::read_plan(int block_len, std::vector<float>& block, int skip) {
-    fileio.read_data(block, block_len);
-    fileio.seek_bytes(skip * itemsize / bitfact, offset = true);
+void FileBase::close_current() {
+    if (m_file_stream.is_open()) {
+        m_file_stream.close();
+    }
 }
 
-void FilReader::read_block(int start_sample, int nsamps,
-                           std::vector<float>& block) {
-    seek_sample(start_sample);
-    fileio.read_data(block, nsamps * stride_len);
+FileIO::FileIO(const std::string& filename, int nbits)
+    : nbits(nbits),
+      bitsinfo(nbits) {
+    file_stream.open(filename.c_str(),
+                     std::ifstream::in | std::ifstream::binary);
+    ErrorChecker::check_file(file_stream, filename);
 }
 
-void FilReader::seek_sample(int sample) {
-    fileio.seek_bytes(hdr.get<int>("header_size") + start_sample * stride_size);
+FileIO::~FileIO() { file_stream.close(); }
+
+/* read nread units of data from stream */
+void FileIO::read_data(std::vector<float>& block, int nread) {
+    // decide how to read the data based on the number of bits per sample
+    // read n/nbits bytes into character block containing n nbits-bit pairs
+    std::vector<uint8_t> buffer(nread * bitsinfo.itemsize());
+    file_stream.read(reinterpret_cast<char*>(buffer.data()),
+                     buffer.size() / bitsinfo.bitfact());
+
+    if (bitsinfo.packunpack()) {
+        sigproc::unpackInPlace(buffer.data(), nbits, buffer.size());
+    }
+
+    float* buffer_ptr = reinterpret_cast<float*>(buffer.data());
+
+    block.clear();
+    block.resize(nread);
+    block.assign(buffer_ptr, buffer_ptr + block.size());
 }
 
-class FilterbankWriter {
-public:
-    FilterbankWriter(std::string filename, SigprocHeader& hdr) {
-        nbits = hdr.get<int>("nbits");
-        // Write the header
-        hdr.tofile(filename);
-        FileIO fileio(filename, nbits);
+/* write block of data to stream */
+void FileIO::write_data(const std::vector<float>& block, int nwrite) {
+    // decide how to read the data based on the number of bits per sample
+    // write n/nbits bytes into character block containing n nbits-bit pairs
+    std::vector<uint8_t> buffer(nwrite * sizeof(float) / sizeof(uint8_t));
+
+    const uint8_t* block_ptr = reinterpret_cast<const uint8_t*>(block.data());
+    buffer.assign(block_ptr, block_ptr + buffer.size());
+
+    if (bitsinfo.packunpack()) {
+        sigproc::packInPlace(buffer.data(), nbits, buffer.size());
     }
 
-    ~FilterbankWriter() {}
+    file_stream.write(reinterpret_cast<const char*>(buffer.data()),
+                      buffer.size() / bitsinfo.bitfact());
+}
 
-    void write_block(const std::vector<float>& block, int block_len) {
-        fileio.write_data(block, block_len);
+/* get to the right place in the file stream. */
+void FileIO::seek_bytes(int nbytes, bool offset = false) {
+    if (offset) {
+        file_stream.seekg(nbytes, std::ios_base::cur);
+    } else {
+        file_stream.seekg(nbytes);
     }
+}
 
-private:
-    int nbits;
-};
-
-/*
-class FilterbankBlock {
-public:
-    FilterbankBlock(uint64_t start, uint64_t length, const FilFile* filfile)
-        : _start(start), _length(length), _filfile(filfile),
-          _nchans(filfile->_nchans), _nifs(filfile->_nifs),
-          _raw_length(length * _nchans * _nifs) {
-        _data = static_cast<float*>(calloc(sizeof(float), _raw_length));
-        //  logmsg("Allocate block %lp",_data);
-    }
-
-    ~FilterbankBlock() {
-        // logmsg("deallocate block %lp",_data);
-        free(_data);
-    }
-    float* _data;
-
-    const int _nchans;
-    const int _nifs;
-
-    const uint64_t _start;
-    const uint64_t _length;
-    const uint64_t _raw_length;
-    const FilFile* _filfile;
-
-private:
-};  // class FilterbankBlock
-
-*/
+} // namespace sigproc::io

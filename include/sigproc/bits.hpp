@@ -1,9 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
+
+#include "sigproc/common/types.hpp"
 
 /**
  * @file numbits.hpp
@@ -17,7 +20,58 @@
  * integers from within a character. i - low ; j - high as above.
  */
 
-namespace sigproc {
+namespace sigproc::bits {
+
+class BitsInfo {
+public:
+    /**
+     * @brief Construct a BitsInfo object for a specific bit width
+     * @param nbits Number of bits (must be 1, 2, 4, 8, 16, or 32)
+     * @throws std::invalid_argument if nbits is not supported
+     */
+    explicit BitsInfo(SizeType nbits);
+
+    // --- Getters ---
+    /// @brief Get the number of bits in this configuration.
+    constexpr SizeType get_nbits() const noexcept { return m_nbits; }
+    /// @brief Storage size in bytes for this bit configuration.
+    SizeType get_itemsize() const noexcept;
+    /// @brief Check if this bit configuration requires pack/unpack operations.
+    constexpr bool get_can_pack_unpack() const noexcept;
+    /// @brief Get the bit packing factor (items per byte).
+    constexpr SizeType get_bitfact() const noexcept;
+    /// @brief Get the minimum digitised value.
+    static constexpr SizeType get_digi_min() noexcept { return 0; }
+    /// @brief Get the maximum digitised value for this bit width.
+    constexpr SizeType get_digi_max() const noexcept;
+    /// @brief Get the mean digitised value for this bit configuration.
+    float get_digi_mean() const noexcept;
+    /// @brief Get the digitised scaling factor.
+    float get_digi_scale() const noexcept;
+    /// @brief Get the digitised sigma (standard deviation).
+    float get_digi_sigma() const noexcept;
+
+private:
+    SizeType m_nbits;
+    IndexType m_attr_index;
+
+    struct Attribute {
+        SizeType itemsize;
+        float digi_sigma;
+    };
+
+    static constexpr std::array<SizeType, 6> kValidNbits = {1, 2, 4, 8, 16, 32};
+    static constexpr std::array<Attribute, 6> kAttributes = {{
+        {.itemsize = sizeof(uint8_t), .digi_sigma = 0.5F},  // 1-bit
+        {.itemsize = sizeof(uint8_t), .digi_sigma = 1.5F},  // 2-bit
+        {.itemsize = sizeof(uint8_t), .digi_sigma = 6.0F},  // 4-bit
+        {.itemsize = sizeof(uint8_t), .digi_sigma = 6.0F},  // 8-bit
+        {.itemsize = sizeof(uint16_t), .digi_sigma = 6.0F}, // 16-bit
+        {.itemsize = sizeof(float), .digi_sigma = 6.0F}     // 32-bit
+    }};
+
+    static constexpr IndexType nbits_to_index(SizeType nbits) noexcept;
+};
 
 /**
  * @brief Unpacks 1, 2, or 4 bit data from 8 bit bytes
@@ -79,4 +133,4 @@ void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
 void pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
                   const std::string& bitorder);
 
-} // namespace sigproc
+} // namespace sigproc::bits

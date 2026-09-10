@@ -2,57 +2,88 @@
 
 #include <fstream>
 #include <vector>
-#include <tuple>
-#include <algorithm>
-#include <stdexcept>
-#include <climits>  // CHAR_BIT (bits_per_byte)
 
-#include <sigproc/fileIO.hpp>
-#include <sigproc/header.hpp>
+#include <sigproc/bits.hpp>
+#include <sigproc/common/params.hpp>
+#include <sigproc/common/types.hpp>
 
-using readplan_tuple = std::tuple<int, int, int>;
+namespace sigproc::io {
 
-class FilReader {
+class FileBase {
 public:
-    FilReader(std::string filename);
+    FileBase(const std::vector<std::string>& filenames, std::string mode);
+    ~FileBase();
+    bool eos() const;
 
-    ~FilReader();
-
-    std::vector<readplan_tuple> get_readplan(int gulp, int skipback = 0,
-                                             int start = 0, int nsamps = 0);
-
-    void read_plan(int block_len, std::vector<float>& block, int skip);
-
-    void read_block(int start_sample, int nsamps, std::vector<float>& block);
-
-    void seek_sample(int sample);
+    // Disable copy and move constructors
+    FileBase(const FileBase&)            = delete;
+    FileBase& operator=(const FileBase&) = delete;
+    FileBase(FileBase&&)                 = delete;
+    FileBase& operator=(FileBase&&)      = delete;
 
 private:
-    std::size_t bitfact;
-    std::size_t itemsize;
-    std::size_t stride_len;
-    std::size_t stride_size;
-    int nbits;
+    std::vector<std::string> m_filenames;
+    std::string m_mode;
+    std::fstream m_file_stream;
+    SizeType m_ifileCur = SIZE_MAX;
 
-    FileReader* fileio;
-    SigprocHeader* hdr;
+    std::unordered_map<std::string, std::ios_base::openmode> m_modeMap = {
+        {"r", std::ios::in | std::ios::binary},
+        {"w", std::ios::out | std::ios::binary}};
+
+    void open_file(size_t ifile);
+    void close_current();
 };
 
-class FilterbankWriter {
+class FileReader : public FileBase {
 public:
-    FilterbankWriter(std::string filename, SigprocHeader& hdr) {
-        nbits = hdr.get<int>("nbits");
-        // Write the header
-        hdr.tofile(filename);
-        FileIO fileio(filename, nbits);
-    }
-
-    ~FilterbankWriter() {}
-
-    void write_block(const std::vector<float>& block, int block_len) {
-        fileio.write_data(block, block_len);
-    }
+    FileReader(const StreamInfo& stream_info, const std::string& mode = "r",
+               int nbits = 8);
+    int cur_data_pos_file() const;
+    int cur_data_pos_stream() const;
+    std::vector<uint8_t> cread(int nunits) const;
+    int creadinto(std::vector<uint8_t>& read_buffer,
+                  std::vector<uint8_t>& unpack_buffer);
+    void seek(int offset, int whence = 0) const;
 
 private:
-    int nbits;
+    StreamInfo m_sinfo;
+    SizeType m_nbits;
+    bits::BitsInfo m_bitsinfo;
+
+    void _seek2hdr(int fileid) const;
+    void _seek_set(int offset) const;
 };
+
+class FileIO {
+public:
+    /**
+     * @brief Construct a new File IO object
+     *
+     * @param filename The name of filename to read/write
+     * @param nbits number of bits in the data
+     */
+    FileIO(const std::string& filename, int nbits);
+
+    /**
+     * @brief Destroy the File IO object
+     *
+     */
+    ~FileIO();
+
+    /* read nread units of data from stream */
+    void read_data(std::vector<float>& block, int nread);
+
+    /* write block of data to stream */
+    void write_data(const std::vector<float>& block, int nwrite);
+
+    /* get to the right place in the file stream. */
+    void seek_bytes(int nbytes, bool offset = false);
+
+private:
+    SizeType m_nbits;
+    bits::BitsInfo m_bitsinfo;
+    std::fstream m_file_stream;
+};
+
+} // namespace sigproc::io
