@@ -2,14 +2,18 @@
     DECIMATE  - decimate filterbank data by adding channels and/or time samples
 */
 
-#include <vector>
-#include <tuple>
 #include <cmath>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <vector>
 
 #include <CLI/CLI.hpp>
 
-#include <sigproc/io.hpp>
-#include "kernels.hpp"
+#include <sigproc/common/types.hpp>
+#include <sigproc/filterbank.hpp>
+#include <sigproc/kernels.hpp>
 
 int main(int argc, char** argv) {
     CLI::App app{"decimate - reduce time and/or frequency resolution of "
@@ -22,10 +26,10 @@ int main(int argc, char** argv) {
 
     std::string outfile;
     app.add_option("-o,--outfile", outfile, "output flterbank file name");
-    int ffactor = 0;
+    int ffactor = 1;
     app.add_option("-c,--numchans", ffactor,
                    "number of channels to add (def=all)");
-    int tfactor = 0;
+    int tfactor = 1;
     app.add_option("-t,--numsamps", tfactor,
                    "number of time samples to add (def=none)");
     int gulp = 512;
@@ -37,50 +41,51 @@ int main(int argc, char** argv) {
 
     CLI11_PARSE(app, argc, argv);
 
-    FilterbankReader filreader(filename);
+    sigproc::FilterbankReader filreader(filename);
 
     // gulp must be a multiple of tfactor
-    gulp = (int)(std::ceil(gulp / tfactor) * tfactor);
+    gulp = static_cast<int>(std::ceil(gulp / tfactor) * tfactor);
 
     // Output nbits
     if (out_nbits == 0) {
         out_nbits = filreader.hdr.get<int>("nbits");
     }
 
-    int nc = (int)filreader.hdr.get<int>("nchans") / ffactor;
+    int nc = filreader.hdr.get<int>("nchans") / ffactor;
     if ((nc * ffactor) != filreader.hdr.get<int>("nchans")) {
-        std::runtime_error(
+        throw std::runtime_error(
             "nchans must be integer multiple of decimation factor");
     }
 
-    std::map<std::string, sig_hdr_types> out_hdr_map
-        = {{"tsamp", filreader.hdr.get<double>("tsamp") * tfactor},
-           {"foff", filreader.hdr.get<double>("foff") * ffactor},
-           {"nchans", filreader.hdr.get<int>("nchans") / ffactor},
-           {"nbits", out_nbits}};
+    std::map<std::string, sigproc::HeaderValue> out_hdr_map = {
+        {"tsamp", filreader.hdr.get<double>("tsamp") * tfactor},
+        {"foff", filreader.hdr.get<double>("foff") * ffactor},
+        {"nchans", filreader.hdr.get<int>("nchans") / ffactor},
+        {"nbits", out_nbits}};
     filreader.hdr.update(out_hdr_map);
 
-    FilterbankWriter filwriter(outfile, filreader.hdr);
+    sigproc::FilterbankWriter filwriter(outfile, filreader.hdr);
 
-    int stride_len
-        = filreader.hdr.get<int>("nchans") * filreader.hdr.get<int>("nifs");
+    int stride_len =
+        filreader.hdr.get<int>("nchans") * filreader.hdr.get<int>("nifs");
 
-    std::vector<float> out_arr(gulp * stride_len / ffactor / tfactor, 0);
+    std::vector<float> out_arr(
+        static_cast<std::size_t>(gulp * stride_len / ffactor / tfactor), 0);
     std::vector<float> block;
 
-    std::vector<readplan_tuple> plan_blocks = filreader.get_readplan(gulp);
-    filreader.seek_sample(0);  // start sample = 0
+    std::vector<sigproc::ReadPlanTuple> plan_blocks =
+        filreader.get_readplan(gulp);
+    filreader.seek_sample(0); // start sample = 0
 
-    int block_len, skip, nsamps;
     for (const auto& tup : plan_blocks) {
-        block_len = std::get<1>(tup);
-        skip      = std::get<2>(tup);
-        nsamps    = (int)(block_len / filreader.hdr.get<int>("nchans"));
+        int block_len = std::get<1>(tup);
+        int skip      = std::get<2>(tup);
+        int nsamps    = block_len / filreader.hdr.get<int>("nchans");
         filreader.read_plan(block_len, block, skip);
-        sigproc::downsample(block.data(), out_arr.data(), tfactor, ffactor,
-                            sigfile.hdr.get<int>("nchans"), nsamps);
+        sigproc::kernels::downsample(block, out_arr, tfactor, ffactor,
+                                     filreader.hdr.get<int>("nchans"), nsamps);
         filwriter.write_block(out_arr, nsamps * stride_len / ffactor / tfactor);
-    };
+    }
 
     return 0;
 }
