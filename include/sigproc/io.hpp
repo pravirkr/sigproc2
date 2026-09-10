@@ -13,7 +13,7 @@ class FileBase {
 public:
     FileBase(const std::vector<std::string>& filenames, std::string mode);
     ~FileBase();
-    bool eos() const;
+    bool eos();
 
     // Disable copy and move constructors
     FileBase(const FileBase&)            = delete;
@@ -33,6 +33,14 @@ private:
 
     void open_file(size_t ifile);
     void close_current();
+};
+
+/**
+ * @brief Describes a logical stream of one or more data files.
+ */
+struct StreamInfo {
+    std::vector<std::string> filenames;
+    SizeType nbits = 8;
 };
 
 class FileReader : public FileBase {

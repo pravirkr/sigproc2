@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -37,13 +38,19 @@ public:
     /// @brief Storage size in bytes for this bit configuration.
     SizeType get_itemsize() const noexcept;
     /// @brief Check if this bit configuration requires pack/unpack operations.
-    constexpr bool get_can_pack_unpack() const noexcept;
+    constexpr bool get_can_pack_unpack() const noexcept {
+        return m_nbits == 1 || m_nbits == 2 || m_nbits == 4;
+    }
     /// @brief Get the bit packing factor (items per byte).
-    constexpr SizeType get_bitfact() const noexcept;
+    constexpr SizeType get_bitfact() const noexcept {
+        return get_can_pack_unpack() ? CHAR_BIT / m_nbits : 1;
+    }
     /// @brief Get the minimum digitised value.
     static constexpr SizeType get_digi_min() noexcept { return 0; }
     /// @brief Get the maximum digitised value for this bit width.
-    constexpr SizeType get_digi_max() const noexcept;
+    constexpr SizeType get_digi_max() const noexcept {
+        return (1U << m_nbits) - 1;
+    }
     /// @brief Get the mean digitised value for this bit configuration.
     float get_digi_mean() const noexcept;
     /// @brief Get the digitised scaling factor.
@@ -70,7 +77,14 @@ private:
         {.itemsize = sizeof(float), .digi_sigma = 6.0F}     // 32-bit
     }};
 
-    static constexpr IndexType nbits_to_index(SizeType nbits) noexcept;
+    static constexpr IndexType nbits_to_index(SizeType nbits) noexcept {
+        for (SizeType i = 0; i < kValidNbits.size(); ++i) {
+            if (kValidNbits[i] == nbits) {
+                return static_cast<IndexType>(i);
+            }
+        }
+        return -1;
+    }
 };
 
 /**

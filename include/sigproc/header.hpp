@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "sigproc/common/params.hpp"
@@ -56,6 +57,26 @@ public:
      */
     template <HeaderValueType T>
     void set(std::string_view key, T value) noexcept;
+
+    /**
+     * @brief Update/write a header value from a variant directly.
+     *
+     * Overload used when the value is already a HeaderValue (or a string
+     * literal), e.g. when copying default values or merging maps.
+     *
+     * @param key   The key to write/update the mapped value.
+     * @param value The variant value to store.
+     */
+    void set(std::string_view key, HeaderValue value) noexcept;
+
+    /**
+     * @brief Merge values from a map into this header (in place).
+     *
+     * Existing keys are overwritten and derived values are recomputed.
+     *
+     * @param newmap The map of key/value pairs to merge.
+     */
+    void update(const std::map<std::string, HeaderValue>& newmap);
 
     /**
      * @brief Get the frequency array
@@ -121,11 +142,18 @@ public:
      */
     bool fromfile(std::string_view filename);
 
+    /**
+     * @brief Write the SigprocHeader to a file.
+     *
+     * @param filename The name of the file to write to.
+     */
+    void tofile(std::string_view filename);
+
     template <typename T>
     SigprocHeader new_header(const std::map<std::string, T>& newmap);
 
 private:
-    std::map<std::string, HeaderValue> m_data;
+    std::unordered_map<std::string, HeaderValue> m_data;
 
     [[nodiscard]] std::vector<char> tobuffer() const;
     void update_internal();
@@ -168,7 +196,7 @@ bool SigprocHeader::fromstream(BinaryStream& stream) {
 
     // Read header key-value pairs
     while (true) {
-        token = read_string(stream);
+        token = detail::io_utils::read_string(stream);
         if (token == "HEADER_END") {
             header_size = static_cast<int>(stream.tellg());
             break;

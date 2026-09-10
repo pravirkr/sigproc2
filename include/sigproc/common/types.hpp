@@ -2,7 +2,9 @@
 
 #include <complex>
 #include <cstddef>
+#include <format>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace sigproc {
@@ -19,15 +21,13 @@ concept HeaderValueType = std::same_as<T, int> || std::same_as<T, double> ||
 
 template <typename T>
 concept BinaryReadableType = requires(T& stream, char* buf, std::streamsize n) {
-    { stream.read(buf, n) } -> std::same_as<T&>;
+    stream.read(buf, n);
     { stream.gcount() } -> std::convertible_to<std::streamsize>;
 };
 
 template <typename T>
-concept BinaryWritableType =
-    requires(T& stream, const char* buf, std::streamsize n) {
-        { stream.write(buf, n) } -> std::same_as<T&>;
-    };
+concept BinaryWritableType = requires(
+    T& stream, const char* buf, std::streamsize n) { stream.write(buf, n); };
 
 template <typename T>
 concept BinaryStreamType = BinaryReadableType<T> && BinaryWritableType<T>;
@@ -41,3 +41,26 @@ template <typename T>
 concept IntegralDataType = std::is_integral_v<T>;
 
 } // namespace sigproc
+
+// Enable std::format support for KeyType (used in diagnostic messages).
+template <>
+struct std::formatter<sigproc::KeyType> : std::formatter<std::string_view> {
+    auto format(sigproc::KeyType type, std::format_context& ctx) const {
+        std::string_view name = "unknown";
+        switch (type) {
+        case sigproc::KeyType::kSInt:
+            name = "int";
+            break;
+        case sigproc::KeyType::kSDouble:
+            name = "double";
+            break;
+        case sigproc::KeyType::kSBool:
+            name = "bool";
+            break;
+        case sigproc::KeyType::kSString:
+            name = "string";
+            break;
+        }
+        return std::formatter<std::string_view>::format(name, ctx);
+    }
+};

@@ -25,6 +25,17 @@ SigprocHeader::SigprocHeader() {
     }
 }
 
+void SigprocHeader::set(std::string_view key, HeaderValue value) noexcept {
+    m_data[std::string(key)] = std::move(value);
+}
+
+void SigprocHeader::update(const std::map<std::string, HeaderValue>& newmap) {
+    for (const auto& [key, value] : newmap) {
+        set(key, value);
+    }
+    update_internal();
+}
+
 std::vector<float> SigprocHeader::get_freqs() const noexcept {
     auto nchans = get<int>("nchans");
     auto fch1   = get<double>("fch1");
@@ -49,7 +60,7 @@ SigprocHeader::get_dm_delays(double dm, std::string_view ref_freq) const {
         fch_ref = get<double>("fcenter");
     } else {
         throw std::invalid_argument(
-            fmt::format("Unknown reference frequency: {}", ref_freq));
+            std::format("Unknown reference frequency: {}", ref_freq));
     }
     for (auto i = 0; i < nchans; ++i) {
         delays[i] = kDispConst * dm *
@@ -71,6 +82,15 @@ bool SigprocHeader::fromfile(std::string_view filename) {
         throw std::runtime_error(std::format(
             "Error reading header from file '{}': {}", filename, e.what()));
     }
+}
+
+void SigprocHeader::tofile(std::string_view filename) {
+    std::ofstream file_stream(std::string(filename),
+                              std::ios::out | std::ios::binary);
+    if (!file_stream.is_open()) {
+        throw std::runtime_error(std::format("Cannot open file: {}", filename));
+    }
+    tostream(file_stream);
 }
 
 void SigprocHeader::update_internal() {

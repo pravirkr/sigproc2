@@ -1,8 +1,10 @@
 #include "sigproc/bits.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <span>
 #include <stdexcept>
 
@@ -465,15 +467,6 @@ BitsInfo::BitsInfo(SizeType nbits)
 SizeType BitsInfo::get_itemsize() const noexcept {
     return kAttributes[m_attr_index].itemsize;
 }
-constexpr bool BitsInfo::get_can_pack_unpack() const noexcept {
-    return m_nbits == 1 || m_nbits == 2 || m_nbits == 4;
-}
-constexpr SizeType BitsInfo::get_bitfact() const noexcept {
-    return get_can_pack_unpack() ? CHAR_BIT / m_nbits : 1;
-}
-constexpr SizeType BitsInfo::get_digi_max() const noexcept {
-    return (1U << m_nbits) - 1;
-}
 float BitsInfo::get_digi_mean() const noexcept {
     return static_cast<float>((1U << (m_nbits - 1)) - 0.5);
 }
@@ -482,14 +475,6 @@ float BitsInfo::get_digi_scale() const noexcept {
 }
 float BitsInfo::get_digi_sigma() const noexcept {
     return kAttributes[m_attr_index].digi_sigma;
-}
-constexpr IndexType BitsInfo::nbits_to_index(SizeType nbits) noexcept {
-    for (size_t i = 0; i < kValidNbits.size(); ++i) {
-        if (kValidNbits[i] == nbits) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
 }
 
 } // namespace sigproc::bits
