@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <format>
 #include <functional>
 #include <ios>
@@ -127,8 +128,8 @@ DataType read_value(BinaryStream& stream) {
 
 template <typename BinaryStream>
 inline void write_string(BinaryStream& stream, std::string_view str) {
-    const auto len = str.size();
-    stream.write(reinterpret_cast<const char*>(&len), sizeof(SizeType));
+    const auto len = static_cast<std::int32_t>(str.size());
+    stream.write(reinterpret_cast<const char*>(&len), sizeof(len));
     if (len > 0) {
         stream.write(str.data(), static_cast<std::streamsize>(len));
     }
@@ -138,7 +139,7 @@ inline void write_string(BinaryStream& stream, std::string_view str) {
 }
 
 inline void write_string(std::vector<char>& buffer, std::string_view str) {
-    const auto len      = str.size();
+    const auto len      = static_cast<std::int32_t>(str.size());
     const auto* len_ptr = reinterpret_cast<const char*>(&len);
     buffer.insert(buffer.end(), len_ptr, len_ptr + sizeof(len));
     buffer.insert(buffer.end(), str.begin(), str.end());
@@ -167,28 +168,23 @@ static void write_value(std::vector<char>& buffer,
 
 template <typename BinaryStream>
 [[nodiscard]] inline std::string read_string(BinaryStream& stream) {
-    std::streamsize len{};
+    std::int32_t len{};
     stream.read(reinterpret_cast<char*>(&len), sizeof(len));
     if (!stream) [[unlikely]] {
         throw std::runtime_error("Failed to read string length from stream");
     }
 
-    // Sanity check: reasonable maximum string length (1 MB)
-    constexpr SizeType kMaxStringLen = 1024UL * 1024UL;
-    if (static_cast<SizeType>(len) > kMaxStringLen) [[unlikely]] {
-        throw std::runtime_error(std::format(
-            "Invalid string length: {} (max: {})", len, kMaxStringLen));
+    constexpr std::int32_t kMaxStringLen = 80;
+    if (len < 1 || len > kMaxStringLen) [[unlikely]] {
+        throw std::runtime_error(
+            std::format("Invalid SIGPROC string length: {} (expected 1..{})",
+                        len, kMaxStringLen));
     }
 
-    if (len == 0) {
-        return std::string{};
-    }
-    std::string result(len, '\0');
-    if (len > 0) {
-        stream.read(result.data(), len);
-        if (!stream) {
-            throw std::runtime_error("Failed to read string from stream.");
-        }
+    std::string result(static_cast<std::size_t>(len), '\0');
+    stream.read(result.data(), static_cast<std::streamsize>(len));
+    if (!stream) {
+        throw std::runtime_error("Failed to read string from stream.");
     }
     return result;
 }

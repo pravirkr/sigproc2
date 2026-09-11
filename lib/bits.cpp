@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 #include <omp.h>
 
@@ -151,29 +155,25 @@ void unpack_4bit(std::span<const uint8_t> inbuffer,
 }
 
 template <bool BigEndian> void unpack_1bit_inplace(std::span<uint8_t> buffer) {
-    size_t lastsamp = buffer.size() / 8;
-    size_t pos{};
-    uint8_t temp{};
-    for (size_t ii = lastsamp - 1; ii != 0; ii--) {
-        temp = buffer[ii];
-        pos  = ii << 3;
+    const size_t lastsamp = buffer.size() / 8;
+    for (size_t ii = lastsamp; ii-- > 0;) {
+        const uint8_t temp = buffer[ii];
+        const size_t pos   = ii << 3;
         for (size_t jj = 0; jj < 8; jj++) {
             if constexpr (BigEndian) {
-                buffer[pos + jj] = (temp >> jj) & 1;
-            } else {
                 buffer[pos + (7 - jj)] = (temp >> jj) & 1;
+            } else {
+                buffer[pos + jj] = (temp >> jj) & 1;
             }
         }
     }
 }
 
 template <bool BigEndian> void unpack_2bit_inplace(std::span<uint8_t> buffer) {
-    size_t lastsamp = buffer.size() / 4;
-    size_t pos{};
-    uint8_t temp{};
-    for (size_t ii = lastsamp - 1; ii != 0; ii--) {
-        temp = buffer[ii];
-        pos  = ii << 2;
+    const size_t lastsamp = buffer.size() / 4;
+    for (size_t ii = lastsamp; ii-- > 0;) {
+        const uint8_t temp = buffer[ii];
+        const size_t pos   = ii << 2;
         if constexpr (BigEndian) {
             buffer[pos + 3] = temp & kLO2BITS;
             buffer[pos + 2] = (temp & kLOMED2BITS) >> 2;
@@ -189,12 +189,10 @@ template <bool BigEndian> void unpack_2bit_inplace(std::span<uint8_t> buffer) {
 }
 
 template <bool BigEndian> void unpack_4bit_inplace(std::span<uint8_t> buffer) {
-    size_t lastsamp = buffer.size() / 2;
-    size_t pos{};
-    uint8_t temp{};
-    for (size_t ii = lastsamp - 1; ii != 0; ii--) {
-        temp = buffer[ii];
-        pos  = ii << 1;
+    const size_t lastsamp = buffer.size() / 2;
+    for (size_t ii = lastsamp; ii-- > 0;) {
+        const uint8_t temp = buffer[ii];
+        const size_t pos   = ii << 1;
         if constexpr (BigEndian) {
             buffer[pos + 1] = temp & kLO4BITS;
             buffer[pos + 0] = (temp & kHI4BITS) >> 4;
@@ -485,6 +483,107 @@ float BitsInfo::get_digi_scale() const noexcept {
 }
 float BitsInfo::get_digi_sigma() const noexcept {
     return kAttributes[m_attr_index].digi_sigma;
+}
+
+SizeType packed_nbytes(SizeType nvalues, const BitsInfo& info) {
+    const auto bitfact = info.get_bitfact();
+    if (bitfact == 0) {
+        throw std::invalid_argument("invalid bitfact");
+    }
+    return (nvalues * info.get_itemsize()) / bitfact;
+}
+
+SizeType nvalues_from_nbytes(SizeType nbytes, const BitsInfo& info) {
+    const auto bitfact = info.get_bitfact();
+    return (nbytes / info.get_itemsize()) * bitfact;
+}
+
+void u8_to_float(std::span<const std::uint8_t> in, std::span<float> out) {
+    const auto n = std::min(in.size(), out.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = static_cast<float>(in[i]);
+    }
+}
+
+void u16_to_float(std::span<const std::uint16_t> in, std::span<float> out) {
+    const auto n = std::min(in.size(), out.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = static_cast<float>(in[i]);
+    }
+}
+
+void f32_copy(std::span<const float> in, std::span<float> out) {
+    const auto n = std::min(in.size(), out.size());
+    if (n > 0) {
+        std::memcpy(out.data(), in.data(), n * sizeof(float));
+    }
+}
+
+void unpack_to_float(std::span<const std::uint8_t> packed,
+                     std::span<float> out,
+                     SizeType nbits) {
+    if (nbits != 1 && nbits != 2 && nbits != 4) {
+        throw std::invalid_argument(
+            "unpack_to_float: nbits must be 1, 2, or 4");
+    }
+    const SizeType bitfact = CHAR_BIT / nbits;
+    std::vector<std::uint8_t> unpacked(packed.size() * bitfact);
+    unpack(packed, unpacked, nbits, std::string(kSigprocBitOrder));
+    const auto n = std::min(out.size(), unpacked.size());
+    for (std::size_t i = 0; i < n; ++i) {
+        out[i] = static_cast<float>(unpacked[i]);
+    }
+}
+
+void from_float(std::span<const float> in,
+                std::span<std::byte> out,
+                const BitsInfo& info) {
+    const auto nbits = info.get_nbits();
+    const float vmax = static_cast<float>(info.get_digi_max());
+
+    auto quantize = [&](float x) -> std::uint32_t {
+        float rounded = std::round(x);
+        if (rounded < 0.0F) {
+            rounded = 0.0F;
+        }
+        if (rounded > vmax) {
+            rounded = vmax;
+        }
+        return static_cast<std::uint32_t>(rounded);
+    };
+
+    const auto need = packed_nbytes(in.size(), info);
+    if (out.size() < need) {
+        throw std::invalid_argument(std::format(
+            "from_float: output span too small ({} < {})", out.size(), need));
+    }
+
+    if (nbits == 32) {
+        std::memcpy(out.data(), in.data(), in.size() * sizeof(float));
+        return;
+    }
+    if (nbits == 16) {
+        auto* dst = reinterpret_cast<std::uint16_t*>(out.data());
+        for (std::size_t i = 0; i < in.size(); ++i) {
+            dst[i] = static_cast<std::uint16_t>(quantize(in[i]));
+        }
+        return;
+    }
+    if (nbits == 8) {
+        auto* dst = reinterpret_cast<std::uint8_t*>(out.data());
+        for (std::size_t i = 0; i < in.size(); ++i) {
+            dst[i] = static_cast<std::uint8_t>(quantize(in[i]));
+        }
+        return;
+    }
+
+    std::vector<std::uint8_t> unpacked(in.size());
+    for (std::size_t i = 0; i < in.size(); ++i) {
+        unpacked[i] = static_cast<std::uint8_t>(quantize(in[i]));
+    }
+    auto* packed = reinterpret_cast<std::uint8_t*>(out.data());
+    pack(unpacked, std::span<std::uint8_t>(packed, need), nbits,
+         std::string(kSigprocBitOrder));
 }
 
 } // namespace sigproc::bits

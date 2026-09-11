@@ -1,9 +1,12 @@
 #pragma once
 
+#include <cstddef>
 #include <format>
 #include <istream>
 #include <map>
 #include <optional>
+#include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,7 +25,8 @@ public:
     /**
      * @brief Construct a new SigprocHeader object
      *
-     * All keys are initialized to their default values.
+     * All keys are initialized to their default values. Defaults are not
+     * written on encode until `set`/`update` marks them present.
      */
     SigprocHeader();
 
@@ -50,6 +54,9 @@ public:
 
     /**
      * @brief Update/write the sigproc header value for given key.
+     *
+     * Marks the key as present for sparse encode. Empty strings are never
+     * written (they are erased from the write-set).
      *
      * @tparam T    The data type of the value.
      * @param key   The key to write/update the mapped value.
@@ -79,11 +86,29 @@ public:
     void update(const std::map<std::string, HeaderValue>& newmap);
 
     /**
-     * @brief Get the frequency array
+     * @brief Channel centres: the FREQUENCY_START table if present, else
+     *        `fch1 + i * foff` as double.
+     */
+    [[nodiscard]] std::vector<double> get_freq_table() const;
+
+    /// @brief True when the header carries an explicit `fchannel` table.
+    [[nodiscard]] bool has_freq_table() const noexcept;
+
+    /**
+     * @brief Replace the explicit channel-frequency table.
+     *
+     * Nonempty tables are exclusive with `fch1`/`foff` on encode (rule 8).
+     * Pass an empty vector to clear the table and restore the `fch1`/`foff`
+     * path.
+     */
+    void set_freq_table(std::vector<double> freqs);
+
+    /**
+     * @brief Get the frequency array (float copy of `get_freq_table()`).
      *
      * @return std::vector<float> The frequency array
      */
-    [[nodiscard]] std::vector<float> get_freqs() const noexcept;
+    [[nodiscard]] std::vector<float> get_freqs() const;
 
     /**
      * @brief Get the DM delays
@@ -105,12 +130,15 @@ public:
      * @param newmap The map to create the new SigprocHeader from
      * @return SigprocHeader The new SigprocHeader
      */
-    template <HeaderValueType T>
+    template <typename T>
     [[nodiscard]] SigprocHeader
-    new_header(const std::map<std::string, T>& newmap) noexcept;
+    new_header(const std::map<std::string, T>& newmap);
 
     /**
      * @brief Write the SigprocHeader to a binary stream
+     *
+     * Sparse encode: write-set plus required core, in `kEncodeOrder` (or
+     * original file order if this header was read from a stream).
      *
      * @tparam BinaryStream The binary stream type
      * @param stream The binary stream to write to
@@ -121,19 +149,20 @@ public:
     /**
      * @brief Read header data into this SigprocHeader.
      *
-     * Attempts to read all standard SIGPROC header keywords. Unknown keys
-     * are logged and skipped. Derived keys are recomputed on success.
+     * Seekable failed magic: rewind and return false. Non-seekable failed
+     * magic: throw. Unknown keys are probed (sizes 4, 8, 1) without seekg
+     * restore.
      *
      * @param stream A binary input stream to read the header from.
      * @return true  if the reading is successful
-     * @return false if the data file is not in standard format
+     * @return false if the data file is not in standard format (seekable)
      */
     bool fromstream(std::istream& stream);
 
     /**
      * @brief Read the SigprocHeader from a file
      *
-     * @param filename The name of the file to read from
+     * @param filename The name of the file to read from.
      * @return true if the reading is successful
      * @return false if the file is not in standard format
      */
@@ -146,14 +175,32 @@ public:
      */
     void tofile(std::string_view filename);
 
-    template <typename T>
-    SigprocHeader new_header(const std::map<std::string, T>& newmap);
+    /**
+     * @brief Bytes teed by the last successful `fromstream`.
+     *
+     * Empty if the header was built in memory. Used by
+     * `FilterbankReader::write_raw_header`.
+     */
+    [[nodiscard]] std::span<const std::byte> raw_header() const noexcept;
+
+    /// @brief True if `key` is in the encode write-set.
+    [[nodiscard]] bool is_present(std::string_view key) const noexcept;
 
 private:
     std::unordered_map<std::string, HeaderValue> m_data;
+    std::vector<std::string> m_file_order;
+    std::set<std::string> m_present;
+    std::vector<double> m_freq_table;
+    std::vector<std::byte> m_raw_header;
 
     [[nodiscard]] std::vector<char> tobuffer() const;
     void update_internal();
+    void note_present(std::string_view key, bool empty_string) noexcept;
+    void assign_data(std::string_view key, HeaderValue value) noexcept;
+    void append_encoded_key(std::vector<char>& buffer,
+                            const std::string& key) const;
+    void append_freq_table(std::vector<char>& buffer) const;
+    [[nodiscard]] std::vector<std::string> encode_keys() const;
 };
 
 // ===================== TEMPLATE IMPLEMENTATIONS =====================
@@ -182,7 +229,13 @@ std::optional<T> SigprocHeader::try_get(std::string_view key) const noexcept {
 
 template <HeaderValueType T>
 void SigprocHeader::set(std::string_view key, T value) noexcept {
-    m_data[std::string(key)] = std::move(value);
+    std::string k{key};
+    bool empty = false;
+    if constexpr (std::same_as<T, std::string>) {
+        empty = value.empty();
+    }
+    m_data[k] = std::move(value);
+    note_present(k, empty);
 }
 
 template <BinaryWritableType BinaryStream>
@@ -197,7 +250,7 @@ void SigprocHeader::tostream(BinaryStream& stream) {
 template <typename T>
 SigprocHeader
 SigprocHeader::new_header(const std::map<std::string, T>& newmap) {
-    SigprocHeader newhdr(*this); // Copy the current header
+    SigprocHeader newhdr(*this);
     for (const auto& param : newmap) {
         newhdr.set(param.first, param.second);
     }

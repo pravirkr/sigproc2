@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 
 #include <sigproc/common/types.hpp>
 
@@ -156,5 +157,40 @@ void pack(std::span<const uint8_t> inbuffer,
 void pack_inplace(std::span<uint8_t> inbuffer,
                   size_t nbits,
                   const std::string& bitorder);
+
+/// SIGPROC on-disk 1/2/4-bit order: low bits first (`pack_unpack.c`).
+inline constexpr std::string_view kSigprocBitOrder = "little";
+
+/**
+ * @brief Unpack 1/2/4-bit little-endian packed samples to float32.
+ *
+ * @param packed Packed bytes
+ * @param out    Destination floats (size must be packed.size() * 8 / nbits)
+ * @param nbits  Bit width in {1, 2, 4}
+ */
+void unpack_to_float(std::span<const std::uint8_t> packed,
+                     std::span<float> out,
+                     SizeType nbits);
+
+void u8_to_float(std::span<const std::uint8_t> in, std::span<float> out);
+void u16_to_float(std::span<const std::uint16_t> in, std::span<float> out);
+void f32_copy(std::span<const float> in, std::span<float> out);
+
+/**
+ * @brief Quantize float samples and pack to SIGPROC payload bytes.
+ *
+ * Rounds to nearest, clips to the digitised range, then packs little-endian
+ * for 1/2/4-bit (native 8/16/32 otherwise).
+ */
+void from_float(std::span<const float> in,
+                std::span<std::byte> out,
+                const BitsInfo& info);
+
+/// Packed payload size in bytes for `nvalues` samples at `info` bit width.
+[[nodiscard]] SizeType packed_nbytes(SizeType nvalues, const BitsInfo& info);
+
+/// How many values fit in `nbytes` of packed payload.
+[[nodiscard]] SizeType nvalues_from_nbytes(SizeType nbytes,
+                                           const BitsInfo& info);
 
 } // namespace sigproc::bits

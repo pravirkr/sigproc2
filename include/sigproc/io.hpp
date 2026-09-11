@@ -1,102 +1,74 @@
 #pragma once
 
-#include <climits>
 #include <cstdint>
 #include <fstream>
+#include <istream>
+#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <sigproc/bits.hpp>
-#include <sigproc/common/params.hpp>
 #include <sigproc/common/types.hpp>
 
 namespace sigproc::io {
 
-class FileBase {
-public:
-    FileBase(const std::vector<std::string>& filenames, std::string mode);
-    ~FileBase();
-    bool eos();
-
-    // Disable copy and move constructors
-    FileBase(const FileBase&)            = delete;
-    FileBase& operator=(const FileBase&) = delete;
-    FileBase(FileBase&&)                 = delete;
-    FileBase& operator=(FileBase&&)      = delete;
-
-private:
-    std::vector<std::string> m_filenames;
-    std::string m_mode;
-    std::fstream m_file_stream;
-    SizeType m_ifileCur = SIZE_MAX;
-
-    std::unordered_map<std::string, std::ios_base::openmode> m_modeMap = {
-        {"r", std::ios::in | std::ios::binary},
-        {"w", std::ios::out | std::ios::binary}};
-
-    void open_file(size_t ifile);
-    void close_current();
-};
-
 /**
- * @brief Describes a logical stream of one or more data files.
+ * @brief Byte-oriented sample I/O for a SIGPROC payload stream.
+ *
+ * Filename empty or "-" selects stdin (binary). A wrapped `istream` is
+ * non-owning; the caller keeps it alive.
  */
-struct StreamInfo {
-    std::vector<std::string> filenames;
-    SizeType nbits = 8;
-};
-
-class FileReader : public FileBase {
-public:
-    FileReader(const StreamInfo& stream_info,
-               const std::string& mode = "r",
-               int nbits               = 8);
-    int cur_data_pos_file() const;
-    int cur_data_pos_stream() const;
-    std::vector<uint8_t> cread(int nunits) const;
-    int creadinto(std::vector<uint8_t>& read_buffer,
-                  std::vector<uint8_t>& unpack_buffer);
-    void seek(int offset, int whence = 0) const;
-
-private:
-    StreamInfo m_sinfo;
-    SizeType m_nbits;
-    bits::BitsInfo m_bitsinfo;
-
-    void _seek2hdr(int fileid) const;
-    void _seek_set(int offset) const;
-};
-
 class FileIO {
 public:
-    /**
-     * @brief Construct a new File IO object
-     *
-     * @param filename The name of filename to read/write
-     * @param nbits number of bits in the data
-     */
     FileIO(const std::string& filename, int nbits);
-
-    /**
-     * @brief Destroy the File IO object
-     *
-     */
+    FileIO(std::istream& in, int nbits);
     ~FileIO();
 
-    /* read nread units of data from stream */
-    void read_data(std::vector<float>& block, int nread);
+    FileIO(const FileIO&)            = delete;
+    FileIO& operator=(const FileIO&) = delete;
+    FileIO(FileIO&&)                 = delete;
+    FileIO& operator=(FileIO&&)      = delete;
 
-    /* write block of data to stream */
+    [[nodiscard]] bool seekable() const noexcept;
+
+    /**
+     * @brief Convert up to `nread` values to float.
+     *
+     * Returns how many floats were stored (short at EOF). Resizes `block` to
+     * that count. Never invents zeros past EOF.
+     */
+    SizeType read_data(std::vector<float>& block, int nread);
+
+    /**
+     * @brief Quantize and write `nwrite` floats as packed payload.
+     *
+     * Requires an output stream (not used by `FilterbankReader`).
+     */
     void write_data(const std::vector<float>& block, int nwrite);
 
-    /* get to the right place in the file stream. */
-    void seek_bytes(int nbytes, bool offset = false);
+    /**
+     * @brief Absolute (`offset==false`) or relative seek.
+     *
+     * Throws if the stream is not seekable unless the destination is the
+     * current position.
+     */
+    void seek_bytes(std::int64_t nbytes, bool offset = false);
+
+    /// Skip forward: seek if seekable, else read-and-discard.
+    void skip_bytes(std::int64_t nbytes);
+
+    /// Copy `nbytes` of packed payload to `out` (no unpack).
+    void copy_bytes(std::ostream& out, std::int64_t nbytes);
+
+    [[nodiscard]] std::int64_t tell_bytes();
 
 private:
     SizeType m_nbits;
     bits::BitsInfo m_bitsinfo;
-    std::fstream m_file_stream;
+    std::istream* m_in  = nullptr;
+    std::ostream* m_out = nullptr;
+    std::unique_ptr<std::ifstream> m_owned_in;
+    bool m_seekable = false;
 };
 
 } // namespace sigproc::io
