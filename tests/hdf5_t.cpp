@@ -88,32 +88,31 @@ hdf5_file_string_attr(const std::string& path, const char* name) {
     }
     const hid_t attr  = H5Aopen(file, name, H5P_DEFAULT);
     const hid_t ftype = H5Aget_type(attr);
+    const hid_t mem   = H5Tcopy(ftype);
     std::string out;
     if (H5Tis_variable_str(ftype) > 0) {
-        char* buf       = nullptr;
-        const hid_t mem = H5Tcopy(H5T_C_S1);
-        H5Tset_size(mem, H5T_VARIABLE);
+        char* buf = nullptr;
         if (H5Aread(attr, mem, &buf) >= 0 && buf != nullptr) {
             out = buf;
             H5free_memory(buf);
         }
-        H5Tclose(mem);
     } else {
         const auto sz = H5Tget_size(ftype);
         std::string buf(sz, '\0');
-        const hid_t mem = H5Tcopy(H5T_C_S1);
-        H5Tset_size(mem, sz);
         if (H5Aread(attr, mem, buf.data()) >= 0) {
             if (const auto n = buf.find('\0'); n != std::string::npos) {
                 buf.resize(n);
             }
             out = std::move(buf);
         }
-        H5Tclose(mem);
     }
+    H5Tclose(mem);
     H5Tclose(ftype);
     H5Aclose(attr);
     H5Fclose(file);
+    if (out.empty()) {
+        return std::nullopt;
+    }
     return out;
 }
 
