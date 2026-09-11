@@ -1,12 +1,15 @@
-#include "sigproc/io.hpp"
+#include <sigproc/io.hpp>
 
 #include <filesystem>
 #include <format>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include <sigproc/detail/exceptions.hpp>
-#include <sigproc/detail/utils.hpp>
+#include <sigproc/bits.hpp>
+
+#include "sigproc/exceptions.hpp"
+#include "sigproc/utils.hpp"
 
 namespace sigproc::io {
 
@@ -22,7 +25,7 @@ FileBase::FileBase(const std::vector<std::string>& filenames, std::string mode)
 }
 FileBase::~FileBase() { close_current(); }
 
-bool FileBase::eos() const {
+bool FileBase::eos() {
     // First check if we are at the end of the current file
     bool eof = m_file_stream.tellg() == fs::file_size(m_filenames[m_ifileCur]);
     // Now check if we are at the end of the list of files
@@ -55,25 +58,31 @@ void FileBase::close_current() {
 }
 
 FileIO::FileIO(const std::string& filename, int nbits)
-    : nbits(nbits),
-      bitsinfo(nbits) {
-    file_stream.open(filename.c_str(),
-                     std::ifstream::in | std::ifstream::binary);
-    ErrorChecker::check_file(file_stream, filename);
+    : m_nbits(static_cast<SizeType>(nbits)),
+      m_bitsinfo(static_cast<SizeType>(nbits)) {
+    m_file_stream.open(filename.c_str(),
+                       std::ifstream::in | std::ifstream::binary);
+    error_check::check_file(m_file_stream, filename);
 }
 
-FileIO::~FileIO() { file_stream.close(); }
+FileIO::~FileIO() { m_file_stream.close(); }
+
+// Default bit order used when packing/unpacking sub-byte samples.
+namespace {
+constexpr std::string_view kBitOrder = "big";
+} // namespace
 
 /* read nread units of data from stream */
 void FileIO::read_data(std::vector<float>& block, int nread) {
     // decide how to read the data based on the number of bits per sample
     // read n/nbits bytes into character block containing n nbits-bit pairs
-    std::vector<uint8_t> buffer(nread * bitsinfo.itemsize());
-    file_stream.read(reinterpret_cast<char*>(buffer.data()),
-                     buffer.size() / bitsinfo.bitfact());
+    std::vector<uint8_t> buffer(nread * m_bitsinfo.get_itemsize());
+    m_file_stream.read(
+        reinterpret_cast<char*>(buffer.data()),
+        static_cast<std::streamsize>(buffer.size() / m_bitsinfo.get_bitfact()));
 
-    if (bitsinfo.packunpack()) {
-        sigproc::unpackInPlace(buffer.data(), nbits, buffer.size());
+    if (m_bitsinfo.get_can_pack_unpack()) {
+        bits::unpack_in_place(buffer, m_nbits, std::string(kBitOrder));
     }
 
     float* buffer_ptr = reinterpret_cast<float*>(buffer.data());
@@ -92,20 +101,21 @@ void FileIO::write_data(const std::vector<float>& block, int nwrite) {
     const uint8_t* block_ptr = reinterpret_cast<const uint8_t*>(block.data());
     buffer.assign(block_ptr, block_ptr + buffer.size());
 
-    if (bitsinfo.packunpack()) {
-        sigproc::packInPlace(buffer.data(), nbits, buffer.size());
+    if (m_bitsinfo.get_can_pack_unpack()) {
+        bits::pack_inplace(buffer, m_nbits, std::string(kBitOrder));
     }
 
-    file_stream.write(reinterpret_cast<const char*>(buffer.data()),
-                      buffer.size() / bitsinfo.bitfact());
+    m_file_stream.write(
+        reinterpret_cast<const char*>(buffer.data()),
+        static_cast<std::streamsize>(buffer.size() / m_bitsinfo.get_bitfact()));
 }
 
 /* get to the right place in the file stream. */
-void FileIO::seek_bytes(int nbytes, bool offset = false) {
+void FileIO::seek_bytes(int nbytes, bool offset) {
     if (offset) {
-        file_stream.seekg(nbytes, std::ios_base::cur);
+        m_file_stream.seekg(nbytes, std::ios_base::cur);
     } else {
-        file_stream.seekg(nbytes);
+        m_file_stream.seekg(nbytes);
     }
 }
 

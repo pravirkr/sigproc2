@@ -1,113 +1,119 @@
-#include <fstream>
-#include <vector>
-#include <tuple>
+#include <sigproc/filterbank.hpp>
+
 #include <algorithm>
+#include <cstdint>
+#include <cstdlib>
+#include <format>
 #include <stdexcept>
-#include <climits> 
+#include <string>
+#include <string_view>
+#include <vector>
 
-#include <sigproc/io.hpp>
+namespace sigproc {
 
-using readplan_tuple = std::tuple<int, int, int>;
+namespace {
+// Default bit order used when packing sub-byte samples on write.
+constexpr std::string_view kBitOrder = "big";
+} // namespace
 
-FilReader::FilReader(std::string filename) {
-    hdr.fromfile(filename);
-    nbits       = hdr.get<int>("nbits");
-    bitfact     = fileio.bitsinfo.bitfact();
-    itemsize    = fileio.bitsinfo.itemsize();
-    stride_len  = hdr.get<int>("nchans") * hdr.get<int>("nifs");
-    stride_size = stride_len * itemsize / bitfact;
+io::SigprocHeader FilterbankReader::read_header(const std::string& filename) {
+    io::SigprocHeader header;
+    header.fromfile(filename);
+    return header;
 }
 
-FilReader::~FilReader() { delete fileio; }
+FilterbankReader::FilterbankReader(const std::string& filename)
+    : hdr(read_header(filename)),
+      m_nbits(hdr.get<int>("nbits")),
+      m_bitfact(bits::BitsInfo(static_cast<SizeType>(m_nbits)).get_bitfact()),
+      m_itemsize(bits::BitsInfo(static_cast<SizeType>(m_nbits)).get_itemsize()),
+      m_stride_len(static_cast<SizeType>(hdr.get<int>("nchans")) *
+                   static_cast<SizeType>(hdr.get<int>("nifs"))),
+      m_stride_size(m_bitfact == 0 ? 0 : m_stride_len * m_itemsize / m_bitfact),
+      m_fileio(filename, m_nbits) {
+    // Position the data stream at the first sample (just past the header).
+    seek_sample(0);
+}
 
-std::vector<readplan_tuple> FilReader::get_readplan(int gulp, int skipback = 0,
-                                                    int start  = 0,
-                                                    int nsamps = 0) {
+std::vector<ReadPlanTuple>
+FilterbankReader::get_readplan(int gulp, int skipback, int start, int nsamps) {
     if (nsamps == 0) {
         nsamps = hdr.get<int>("nsamples") - start;
     }
     gulp     = std::min(nsamps, gulp);
     skipback = std::abs(skipback);
     if (skipback >= gulp) {
-        std::runtime_error("readsamps must be > skipback value");
+        throw std::runtime_error("readsamps must be > skipback value");
     }
-    int nreads   = (int)nsamps / (gulp - skipback);
+    int nreads   = nsamps / (gulp - skipback);
     int lastread = nsamps - (nreads * (gulp - skipback));
     if (lastread < skipback) {
         nreads -= 1;
         lastread = nsamps - (nreads * (gulp - skipback));
     }
-    std::vector<readplan_tuple> blocks;
+
+    std::vector<ReadPlanTuple> blocks;
+    const int stride = static_cast<int>(m_stride_len);
     for (int iread = 0; iread < nreads; ++iread) {
-        blocks.push_back(
-            readplan_tuple(iread, gulp * stride_len, -skipback * stride_len));
+        blocks.emplace_back(iread, gulp * stride, -skipback * stride);
     }
     if (lastread != 0) {
-        blocks.push_back(readplan_tuple(nreads, lastread * stride_len, 0));
+        blocks.emplace_back(nreads, lastread * stride, 0);
     }
     return blocks;
 }
 
-void FilReader::read_plan(int block_len, std::vector<float>& block, int skip) {
-    fileio.read_data(block, block_len);
-    fileio.seek_bytes(skip * itemsize / bitfact, offset = true);
+void FilterbankReader::read_plan(int block_len,
+                                 std::vector<float>& block,
+                                 int skip) {
+    m_fileio.read_data(block, block_len);
+    const int bitfact = static_cast<int>(m_bitfact);
+    const int skip_bytes =
+        bitfact == 0 ? 0 : skip * static_cast<int>(m_itemsize) / bitfact;
+    m_fileio.seek_bytes(skip_bytes, true);
 }
 
-void FilReader::read_block(int start_sample, int nsamps,
-                           std::vector<float>& block) {
+void FilterbankReader::read_block(int start_sample,
+                                  int nsamps,
+                                  std::vector<float>& block) {
     seek_sample(start_sample);
-    fileio.read_data(block, nsamps * stride_len);
+    m_fileio.read_data(block, nsamps * static_cast<int>(m_stride_len));
 }
 
-void FilReader::seek_sample(int sample) {
-    fileio.seek_bytes(hdr.get<int>("header_size") + start_sample * stride_size);
+void FilterbankReader::seek_sample(int sample) {
+    const int header_size = hdr.get<int>("header_size");
+    const int offset =
+        header_size +
+        static_cast<int>(static_cast<SizeType>(sample) * m_stride_size);
+    m_fileio.seek_bytes(offset, false);
 }
 
-class FilterbankWriter {
-public:
-    FilterbankWriter(std::string filename, SigprocHeader& hdr) {
-        nbits = hdr.get<int>("nbits");
-        // Write the header
-        hdr.tofile(filename);
-        FileIO fileio(filename, nbits);
+FilterbankWriter::FilterbankWriter(const std::string& filename,
+                                   io::SigprocHeader& hdr)
+    : m_nbits(hdr.get<int>("nbits")),
+      m_bitsinfo(static_cast<SizeType>(m_nbits)),
+      m_stream(filename, std::ios::out | std::ios::binary) {
+    if (!m_stream.is_open()) {
+        throw std::runtime_error(std::format("Cannot open file: {}", filename));
     }
+    // Write the header first; the stream stays open for the sample data.
+    hdr.tostream(m_stream);
+}
 
-    ~FilterbankWriter() {}
+void FilterbankWriter::write_block(const std::vector<float>& block,
+                                   int block_len) {
+    std::vector<uint8_t> buffer(static_cast<SizeType>(block_len) *
+                                sizeof(float));
+    const auto* block_ptr = reinterpret_cast<const uint8_t*>(block.data());
+    buffer.assign(block_ptr, block_ptr + buffer.size());
 
-    void write_block(const std::vector<float>& block, int block_len) {
-        fileio.write_data(block, block_len);
+    if (m_bitsinfo.get_can_pack_unpack()) {
+        bits::pack_inplace(buffer, static_cast<SizeType>(m_nbits),
+                           std::string(kBitOrder));
     }
+    m_stream.write(
+        reinterpret_cast<const char*>(buffer.data()),
+        static_cast<std::streamsize>(buffer.size() / m_bitsinfo.get_bitfact()));
+}
 
-private:
-    int nbits;
-};
-
-/*
-class FilterbankBlock {
-public:
-    FilterbankBlock(uint64_t start, uint64_t length, const FilFile* filfile)
-        : _start(start), _length(length), _filfile(filfile),
-          _nchans(filfile->_nchans), _nifs(filfile->_nifs),
-          _raw_length(length * _nchans * _nifs) {
-        _data = static_cast<float*>(calloc(sizeof(float), _raw_length));
-        //  logmsg("Allocate block %lp",_data);
-    }
-
-    ~FilterbankBlock() {
-        // logmsg("deallocate block %lp",_data);
-        free(_data);
-    }
-    float* _data;
-
-    const int _nchans;
-    const int _nifs;
-
-    const uint64_t _start;
-    const uint64_t _length;
-    const uint64_t _raw_length;
-    const FilFile* _filfile;
-
-private:
-};  // class FilterbankBlock
-
-*/
+} // namespace sigproc

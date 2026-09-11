@@ -1,16 +1,19 @@
-#include "sigproc/header.hpp"
+#include <sigproc/header.hpp>
 
 #include <cmath>
 #include <fstream>
-#include <iostream>
+#include <istream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
-#include "sigproc/astro.hpp"
-#include "sigproc/common/params.hpp"
-#include "sigproc/detail/exceptions.hpp"
-#include "sigproc/detail/utils.hpp"
+#include <spdlog/spdlog.h>
+
+#include <sigproc/astro.hpp>
+#include <sigproc/common/params.hpp>
+
+#include "sigproc/exceptions.hpp"
+#include "sigproc/utils.hpp"
 
 namespace sigproc::io {
 
@@ -23,6 +26,17 @@ SigprocHeader::SigprocHeader() {
         set(key, detail::map_utils::get_value(params::kDefaultKeyValues,
                                               keyInfo.type));
     }
+}
+
+void SigprocHeader::set(std::string_view key, HeaderValue value) noexcept {
+    m_data[std::string(key)] = std::move(value);
+}
+
+void SigprocHeader::update(const std::map<std::string, HeaderValue>& newmap) {
+    for (const auto& [key, value] : newmap) {
+        set(key, value);
+    }
+    update_internal();
 }
 
 std::vector<float> SigprocHeader::get_freqs() const noexcept {
@@ -49,7 +63,7 @@ SigprocHeader::get_dm_delays(double dm, std::string_view ref_freq) const {
         fch_ref = get<double>("fcenter");
     } else {
         throw std::invalid_argument(
-            fmt::format("Unknown reference frequency: {}", ref_freq));
+            std::format("Unknown reference frequency: {}", ref_freq));
     }
     for (auto i = 0; i < nchans; ++i) {
         delays[i] = kDispConst * dm *
@@ -71,6 +85,94 @@ bool SigprocHeader::fromfile(std::string_view filename) {
         throw std::runtime_error(std::format(
             "Error reading header from file '{}': {}", filename, e.what()));
     }
+}
+
+void SigprocHeader::tofile(std::string_view filename) {
+    std::ofstream file_stream(std::string(filename),
+                              std::ios::out | std::ios::binary);
+    if (!file_stream.is_open()) {
+        throw std::runtime_error(std::format("Cannot open file: {}", filename));
+    }
+    tostream(file_stream);
+}
+
+bool SigprocHeader::fromstream(std::istream& stream) {
+    int header_size{}, data_size{}, file_size{};
+    std::string token = detail::io_utils::read_string(stream);
+    if (token != "HEADER_START") {
+        stream.seekg(0, std::ios::beg);
+        return false;
+    }
+
+    // Read header key-value pairs
+    while (true) {
+        token = detail::io_utils::read_string(stream);
+        if (token == "HEADER_END") {
+            header_size = static_cast<int>(stream.tellg());
+            break;
+        }
+        const auto it = params::kSigprocKeys.find(token);
+        if (it != params::kSigprocKeys.end()) {
+            const KeyType type = it->second.type;
+            switch (type) {
+            case KeyType::kSInt:
+                set(token, detail::io_utils::read_value<int>(stream));
+                break;
+            case KeyType::kSDouble:
+                set(token, detail::io_utils::read_value<double>(stream));
+                break;
+            case KeyType::kSBool:
+                set(token, detail::io_utils::read_value<bool>(stream));
+                break;
+            case KeyType::kSString:
+                set(token, detail::io_utils::read_string(stream));
+                break;
+            }
+        } else {
+            spdlog::warn("read_header: unknown parameter {}", token);
+        }
+    }
+
+    if (!stream.good()) {
+        throw std::runtime_error("Stream error while reading header.");
+    }
+
+    stream.seekg(0, std::ios::end);
+    file_size = static_cast<int>(stream.tellg());
+    data_size = file_size - header_size;
+    if (data_size < 0) [[unlikely]] {
+        throw std::runtime_error(
+            std::format("Invalid file structure: data_size={}", data_size));
+    }
+    auto nsamples = get<int>("nsamples");
+    if (nsamples == 0) {
+        // Compute the number of samples from the file size
+        const auto nchans = get<int>("nchans");
+        const auto nifs   = get<int>("nifs");
+        const auto nbits  = get<int>("nbits");
+        if (nchans <= 0 || nifs <= 0 || nbits <= 0) [[unlikely]] {
+            throw std::runtime_error(std::format(
+                "Invalid header values: nchans={}, nifs={}, nbits={}", nchans,
+                nifs, nbits));
+        }
+        const auto denominator = static_cast<SizeType>(nchans) *
+                                 static_cast<SizeType>(nifs) *
+                                 static_cast<SizeType>(nbits);
+        if (denominator == 0) [[unlikely]] {
+            throw std::runtime_error("Division by zero computing nsamples");
+        }
+        nsamples = static_cast<int>((static_cast<SizeType>(data_size) * 8UL) /
+                                    denominator);
+        set("nsamples", nsamples);
+    }
+    set("header_size", header_size);
+    set("data_size", data_size);
+    set("file_size", file_size);
+    update_internal();
+
+    // Seek back to the end of the header
+    stream.seekg(header_size, std::ios::beg);
+    return true;
 }
 
 void SigprocHeader::update_internal() {

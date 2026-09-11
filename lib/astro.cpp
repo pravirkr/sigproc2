@@ -1,12 +1,15 @@
-#include "sigproc/astro.hpp"
+#include <sigproc/astro.hpp>
 
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <numbers>
+#include <stdexcept>
 
-#include <scn/scan.h>
+#include <sigproc/common/types.hpp>
 
-#include "sigproc/common/types.hpp"
+#include "sigproc/parsing.hpp"
 
 namespace sigproc::astro {
 
@@ -48,34 +51,32 @@ double deg_to_dms(double angle) noexcept {
 }
 
 double ra_to_rad(std::string_view ra_string) {
-    auto result = scn::scan<int, int, double>(ra_string, "{}:{}:{}");
-    if (!result || !result->range().empty()) {
+    const parsing::Sexagesimal v =
+        parsing::parse_sexagesimal(ra_string, "right ascension");
+    if (v.negative || v.major >= 24) {
         throw std::invalid_argument(
-            std::format("Invalid right ascension format: '{}'", ra_string));
+            std::format("Right ascension out of range: '{}' (expected 00:00:00 "
+                        "to 23:59:59.9...)",
+                        ra_string));
     }
-    const auto [hour, minutes, sec] = result->values();
-    return hms_to_rad(hour, minutes, sec);
+    return hms_to_rad(static_cast<int>(v.major), static_cast<int>(v.minutes),
+                      v.seconds);
 }
 
 double dec_to_rad(std::string_view dec_string) {
-    auto trimmed = dec_string;
-    while (!trimmed.empty() &&
-           (std::isspace(static_cast<unsigned char>(trimmed.front())) != 0)) {
-        trimmed.remove_prefix(1);
+    const parsing::Sexagesimal v =
+        parsing::parse_sexagesimal(dec_string, "declination");
+    if (v.major > 90 ||
+        (v.major == 90 && (v.minutes != 0 || v.seconds != 0.0))) {
+        throw std::invalid_argument(std::format(
+            "Declination out of range: '{}' (expected -90:00:00 to +90:00:00)",
+            dec_string));
     }
-    bool is_negative = trimmed.starts_with('-');
-
-    auto result = scn::scan<int, int, double>(dec_string, "{}:{}:{}");
-
-    if (!result || !result->range().empty()) {
-        throw std::invalid_argument(
-            std::format("Invalid declination format: '{}'", dec_string));
-    }
-
-    auto [deg, minutes, sec] = result->values();
-    int sign_multiplier      = (is_negative || deg < 0) ? -1 : 1;
-
-    return dms_to_rad(sign_multiplier * std::abs(deg), minutes, sec);
+    // Sign is applied to the finished value, never to the degree magnitude.
+    // This is what makes "-00:30:00" correct.
+    const double magnitude = dms_to_rad(static_cast<int>(v.major),
+                                        static_cast<int>(v.minutes), v.seconds);
+    return v.negative ? -magnitude : magnitude;
 }
 
 std::string mjd_to_gregorian(int mjd) {

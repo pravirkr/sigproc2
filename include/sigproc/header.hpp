@@ -1,17 +1,18 @@
 #pragma once
 
 #include <format>
-#include <iostream>
+#include <istream>
 #include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <variant>
 #include <vector>
 
-#include "sigproc/common/params.hpp"
-#include "sigproc/common/types.hpp"
-#include "sigproc/detail/utils.hpp"
+#include <sigproc/common/params.hpp>
+#include <sigproc/common/types.hpp>
 
 namespace sigproc::io {
 
@@ -58,6 +59,26 @@ public:
     void set(std::string_view key, T value) noexcept;
 
     /**
+     * @brief Update/write a header value from a variant directly.
+     *
+     * Overload used when the value is already a HeaderValue (or a string
+     * literal), e.g. when copying default values or merging maps.
+     *
+     * @param key   The key to write/update the mapped value.
+     * @param value The variant value to store.
+     */
+    void set(std::string_view key, HeaderValue value) noexcept;
+
+    /**
+     * @brief Merge values from a map into this header (in place).
+     *
+     * Existing keys are overwritten and derived values are recomputed.
+     *
+     * @param newmap The map of key/value pairs to merge.
+     */
+    void update(const std::map<std::string, HeaderValue>& newmap);
+
+    /**
      * @brief Get the frequency array
      *
      * @return std::vector<float> The frequency array
@@ -98,19 +119,16 @@ public:
     void tostream(BinaryStream& stream);
 
     /**
-     * @brief Read header data into a SigprocHeader (or similar) structure.
+     * @brief Read header data into this SigprocHeader.
      *
-     * Function attempts to read all standard sigproc header keywords.
-     * Only header attributes with matching keywords are updated in the
-     * given Header object.
+     * Attempts to read all standard SIGPROC header keywords. Unknown keys
+     * are logged and skipped. Derived keys are recomputed on success.
      *
-     * @tparam BinaryStream
-     * @param stream A binary stream to read header from.
+     * @param stream A binary input stream to read the header from.
      * @return true  if the reading is successful
      * @return false if the data file is not in standard format
      */
-    template <BinaryReadableType BinaryStream>
-    bool fromstream(BinaryStream& stream);
+    bool fromstream(std::istream& stream);
 
     /**
      * @brief Read the SigprocHeader from a file
@@ -121,11 +139,18 @@ public:
      */
     bool fromfile(std::string_view filename);
 
+    /**
+     * @brief Write the SigprocHeader to a file.
+     *
+     * @param filename The name of the file to write to.
+     */
+    void tofile(std::string_view filename);
+
     template <typename T>
     SigprocHeader new_header(const std::map<std::string, T>& newmap);
 
 private:
-    std::map<std::string, HeaderValue> m_data;
+    std::unordered_map<std::string, HeaderValue> m_data;
 
     [[nodiscard]] std::vector<char> tobuffer() const;
     void update_internal();
@@ -133,14 +158,26 @@ private:
 
 // ===================== TEMPLATE IMPLEMENTATIONS =====================
 template <HeaderValueType T> T SigprocHeader::get(std::string_view key) const {
-    return detail::map_utils::get_value_variant<T, std::string, HeaderValue>(
-        m_data, std::string(key));
+    const auto it = m_data.find(std::string(key));
+    if (it == m_data.end()) {
+        throw std::runtime_error(std::format("Key '{}' not found", key));
+    }
+    const auto* value = std::get_if<T>(&it->second);
+    if (value == nullptr) {
+        throw std::runtime_error(
+            std::format("Key '{}' has the wrong type", key));
+    }
+    return *value;
 }
 
 template <HeaderValueType T>
 std::optional<T> SigprocHeader::try_get(std::string_view key) const noexcept {
-    return detail::map_utils::try_get_value_variant<T>(m_data,
-                                                       std::string(key));
+    const auto it = m_data.find(std::string(key));
+    if (it == m_data.end()) {
+        return std::nullopt;
+    }
+    const auto* value = std::get_if<T>(&it->second);
+    return value != nullptr ? std::optional<T>(*value) : std::nullopt;
 }
 
 template <HeaderValueType T>
@@ -155,87 +192,6 @@ void SigprocHeader::tostream(BinaryStream& stream) {
     if (!stream.good()) {
         throw std::runtime_error("Failed to write header to stream.");
     }
-}
-
-template <BinaryReadableType BinaryStream>
-bool SigprocHeader::fromstream(BinaryStream& stream) {
-    int header_size{}, data_size{}, file_size{};
-    std::string token = detail::io_utils::read_string(stream);
-    if (token != "HEADER_START") {
-        stream.seekg(0, std::ios::beg);
-        return false;
-    }
-
-    // Read header key-value pairs
-    while (true) {
-        token = read_string(stream);
-        if (token == "HEADER_END") {
-            header_size = static_cast<int>(stream.tellg());
-            break;
-        }
-        const auto it = params::kSigprocKeys.find(token);
-        if (it != params::kSigprocKeys.end()) {
-            const KeyType type = it->second.type;
-            switch (type) {
-            case KeyType::kSInt:
-                set(token, detail::io_utils::read_value<int>(stream));
-                break;
-            case KeyType::kSDouble:
-                set(token, detail::io_utils::read_value<double>(stream));
-                break;
-            case KeyType::kSBool:
-                set(token, detail::io_utils::read_value<bool>(stream));
-                break;
-            case KeyType::kSString:
-                set(token, detail::io_utils::read_string(stream));
-                break;
-            }
-        } else {
-            std::cerr << std::format(
-                "Warning: read_header: unknown parameter {}\n", token);
-        }
-    }
-
-    if (!stream.good()) {
-        throw std::runtime_error("Stream error while reading header.");
-    }
-
-    stream.seekg(0, std::ios::end);
-    file_size = static_cast<int>(stream.tellg());
-    data_size = file_size - header_size;
-    if (data_size < 0) [[unlikely]] {
-        throw std::runtime_error(
-            std::format("Invalid file structure: data_size={}", data_size));
-    }
-    auto nsamples = get<int>("nsamples");
-    if (nsamples == 0) {
-        // Compute the number of samples from the file size
-        const auto nchans = get<int>("nchans");
-        const auto nifs   = get<int>("nifs");
-        const auto nbits  = get<int>("nbits");
-        if (nchans <= 0 || nifs <= 0 || nbits <= 0) [[unlikely]] {
-            throw std::runtime_error(std::format(
-                "Invalid header values: nchans={}, nifs={}, nbits={}", nchans,
-                nifs, nbits));
-        }
-        const auto denominator = static_cast<SizeType>(nchans) *
-                                 static_cast<SizeType>(nifs) *
-                                 static_cast<SizeType>(nbits);
-        if (denominator == 0) [[unlikely]] {
-            throw std::runtime_error("Division by zero computing nsamples");
-        }
-        nsamples = static_cast<int>((static_cast<SizeType>(data_size) * 8UL) /
-                                    denominator);
-        set("nsamples", nsamples);
-    }
-    set("header_size", header_size);
-    set("data_size", data_size);
-    set("file_size", file_size);
-    update_internal();
-
-    // Seek back to the end of the header
-    stream.seekg(header_size, std::ios::beg);
-    return true;
 }
 
 template <typename T>

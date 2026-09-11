@@ -23,4 +23,10 @@ void check_stream(Tstream& stream, const std::string& filename) {
     }
 }
 
+/// @brief Alias for check_stream: verify a file stream opened successfully.
+template <class Tstream>
+void check_file(Tstream& stream, const std::string& filename) {
+    check_stream(stream, filename);
+}
+
 } // namespace sigproc::error_check

@@ -7,12 +7,24 @@ AccessModifierOffset: -4
 AlignConsecutiveAssignments:
   Enabled: true
 BinPackParameters: false
+ColumnLimit: 80
 DerivePointerAlignment: false
+IncludeBlocks: Regroup
+# Include order: definition file, system, 3rd-party, public <sigproc/>, private "sigproc/".
+# The matching header for a .cpp is always placed first (angle or quoted).
 IncludeCategories:
-  - Regex: "^<.*" # System and third-party headers
-    Priority: 1
-  - Regex: '^".*"' # Project headers
+  - Regex: "^<sigproc/"
+    Priority: 4
+  - Regex: '^<(CLI/|catch2/|scn/|spdlog/|fmt/|highfive/|HighFive/|xsimd/|omp\.h>|fftw3|hdf5|H5)'
     Priority: 2
+  - Regex: "^<"
+    Priority: 1
+  - Regex: '^"sigproc/'
+    Priority: 5
+  - Regex: ".*"
+    Priority: 6
+IncludeIsMainRegex: "$"
+MainIncludeChar: Any
 PackConstructorInitializers: CurrentLine
 PointerAlignment: Left
 SortIncludes: CaseSensitive

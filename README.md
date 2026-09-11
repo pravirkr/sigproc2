@@ -1,20 +1,45 @@
 # SIGPROC
 
-Hypermodern `SIGPROC` - a FRB/pulsar processing software.
+Hypermodern C++23 rewrite of SIGPROC — filterbank-native pulsar/FRB
+processing. Library plus `sig_*` command-line tools.
 
-Based on Evan Keane's [fork](https://github.com/FRBs/sigproc) of Michael Keith's [release](https://github.com/SixByNine/sigproc) of Duncan Lorimer's original [SIGPROC](http://sigproc.sourceforge.net/).
+Based on Evan Keane's [fork](https://github.com/FRBs/sigproc) of Michael Keith's
+[release](https://github.com/SixByNine/sigproc) of Duncan Lorimer's original
+[SIGPROC](http://sigproc.sourceforge.net/). Library layout takes inspiration from
+[sigpyproc3](https://github.com/FRBs/sigpyproc3).
 
 [![GitHub CI](https://github.com/pravirkr/sigproc2/actions/workflows/build.yml/badge.svg)](https://github.com/pravirkr/sigproc2/actions/workflows/build.yml)
-[![Codacy Badge](https://app.codacy.com/project/badge/Grade/1f5e0dbe0fd34252bad045bfd20a7f09)](https://www.codacy.com/gh/pravirkr/sigproc2/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=pravirkr/sigproc2&amp;utm_campaign=Badge_Grade)
 
-## Dependencies
+See [AGENTS.md](AGENTS.md) for project direction, style, and the executable
+parity inventory. The original SIGPROC manual is [`docs/sigproc.pdf`](docs/sigproc.pdf).
 
-* [Boost 1.70.0+](https://www.boost.org/)
-* [CMake 3.11+](https://cmake.org/download/)
-* [{fmt} 7.1.3+](https://fmt.dev/latest/index.html)
-* [CLI11 1.9.1+](https://cliutils.github.io/CLI11/book/)
+## Requirements
 
-## Installation
+- GCC >= 14.2 or LLVM Clang >= 18.0
+- CMake >= 3.28 and Ninja
+- OpenMP, single-precision FFTW, HDF5
 
-1. mkdir build && cd build && cmake ..
-2. make && make install
+CPM fetches fmt, spdlog, CLI11, HighFive, xsimd, and Catch2. Set
+`CPM_SOURCE_CACHE` to cache downloads.
+
+Release builds use `-O3 -ffast-math`. `-march=native` is on by default
+(`-DSIG_ENABLE_NATIVE_ARCH=OFF` to disable).
+
+## Build
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build
+```
+
+Tests:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSIG_BUILD_TESTING=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Installed tools (names are `sig_*` so they do not clash with original SIGPROC):
+`sig_header`, `sig_bandpass`, `sig_decimate`, `sig_chopfil`.

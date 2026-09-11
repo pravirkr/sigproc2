@@ -367,7 +367,10 @@ poetry.toml
 .ruff_cache/
 
 # cursor
-.cursor/
+.cursor/*
+# Track the Cloud Agent environment config so future branches build out of the box.
+!.cursor/environment.json
+!.cursor/install.sh
 
 # claude
 CLAUDE.md

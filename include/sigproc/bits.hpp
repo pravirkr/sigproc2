@@ -1,12 +1,13 @@
 #pragma once
 
 #include <array>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
 
-#include "sigproc/common/types.hpp"
+#include <sigproc/common/types.hpp>
 
 /**
  * @file numbits.hpp
@@ -37,13 +38,19 @@ public:
     /// @brief Storage size in bytes for this bit configuration.
     SizeType get_itemsize() const noexcept;
     /// @brief Check if this bit configuration requires pack/unpack operations.
-    constexpr bool get_can_pack_unpack() const noexcept;
+    constexpr bool get_can_pack_unpack() const noexcept {
+        return m_nbits == 1 || m_nbits == 2 || m_nbits == 4;
+    }
     /// @brief Get the bit packing factor (items per byte).
-    constexpr SizeType get_bitfact() const noexcept;
+    constexpr SizeType get_bitfact() const noexcept {
+        return get_can_pack_unpack() ? CHAR_BIT / m_nbits : 1;
+    }
     /// @brief Get the minimum digitised value.
     static constexpr SizeType get_digi_min() noexcept { return 0; }
     /// @brief Get the maximum digitised value for this bit width.
-    constexpr SizeType get_digi_max() const noexcept;
+    constexpr SizeType get_digi_max() const noexcept {
+        return (1U << m_nbits) - 1;
+    }
     /// @brief Get the mean digitised value for this bit configuration.
     float get_digi_mean() const noexcept;
     /// @brief Get the digitised scaling factor.
@@ -70,7 +77,14 @@ private:
         {.itemsize = sizeof(float), .digi_sigma = 6.0F}     // 32-bit
     }};
 
-    static constexpr IndexType nbits_to_index(SizeType nbits) noexcept;
+    static constexpr IndexType nbits_to_index(SizeType nbits) noexcept {
+        for (SizeType i = 0; i < kValidNbits.size(); ++i) {
+            if (kValidNbits[i] == nbits) {
+                return static_cast<IndexType>(i);
+            }
+        }
+        return -1;
+    }
 };
 
 /**
@@ -82,8 +96,11 @@ private:
  * @param bitorder Bit order of the input packed data
  * @param parallel Whether to use parallel processing
  */
-void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-            size_t nbits, const std::string& bitorder, bool parallel = false);
+void unpack(std::span<const uint8_t> inbuffer,
+            std::span<uint8_t> outbuffer,
+            size_t nbits,
+            const std::string& bitorder,
+            bool parallel = false);
 
 /**
  * @brief Unpacks 1, 2, or 4 bit data from 8 bit bytes using a lookup table
@@ -95,8 +112,10 @@ void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
  * @param parallel Whether to use parallel processing
  */
 void unpack_lookup(std::span<const uint8_t> inbuffer,
-                   std::span<uint8_t> outbuffer, size_t nbits,
-                   const std::string& bitorder, bool parallel = false);
+                   std::span<uint8_t> outbuffer,
+                   size_t nbits,
+                   const std::string& bitorder,
+                   bool parallel = false);
 
 /**
  * @brief Unpacks 1, 2, or 4 bit data from 8 bit bytes in place
@@ -108,7 +127,8 @@ void unpack_lookup(std::span<const uint8_t> inbuffer,
  * @param nbits  Number of bits to unpack
  * @param bitorder  Bit order of the input packed data
  */
-void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
+void unpack_in_place(std::span<uint8_t> inbuffer,
+                     size_t nbits,
                      const std::string& bitorder);
 
 /**
@@ -120,8 +140,11 @@ void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
  * @param bitorder Bit order of the output packed data
  * @param parallel Whether to use parallel processing
  */
-void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-          size_t nbits, const std::string& bitorder, bool parallel = false);
+void pack(std::span<const uint8_t> inbuffer,
+          std::span<uint8_t> outbuffer,
+          size_t nbits,
+          const std::string& bitorder,
+          bool parallel = false);
 
 /**
  * @brief Packs 1, 2, or 4 bit data into 8 bit bytes in place
@@ -130,7 +153,8 @@ void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
  * @param nbits Number of bits to pack
  * @param bitorder Bit order of the output packed data
  */
-void pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
+void pack_inplace(std::span<uint8_t> inbuffer,
+                  size_t nbits,
                   const std::string& bitorder);
 
 } // namespace sigproc::bits

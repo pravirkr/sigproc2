@@ -2,14 +2,17 @@
 
 #include <format>
 #include <functional>
+#include <ios>
+#include <optional>
 #include <source_location>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <variant>
 #include <vector>
 
-#include "sigproc/common/types.hpp"
+#include <sigproc/common/types.hpp>
 
 namespace sigproc::detail::map_utils {
 
@@ -142,7 +145,8 @@ inline void write_string(std::vector<char>& buffer, std::string_view str) {
 }
 
 template <class DataType, class BinaryStream>
-static void write_value(BinaryStream& stream, const std::string& name,
+static void write_value(BinaryStream& stream,
+                        const std::string& name,
                         const DataType& val) {
     write_string(stream, name);
     stream.write(reinterpret_cast<const char*>(&val), sizeof(DataType));
@@ -153,7 +157,8 @@ static void write_value(BinaryStream& stream, const std::string& name,
 }
 
 template <class DataType>
-static void write_value(std::vector<char>& buffer, const std::string& name,
+static void write_value(std::vector<char>& buffer,
+                        const std::string& name,
                         const DataType& val) {
     write_string(buffer, name);
     const auto* val_bytes = reinterpret_cast<const char*>(&val);

@@ -39,7 +39,7 @@ Checks: >
 
 HeaderFileExtensions: ["h", "hh", "hpp", "hxx", "cuh"]
 WarningsAsErrors: ""
-HeaderFilterRegex: ".*"
+HeaderFilterRegex: ".*/(include/sigproc/|lib/|applications/|tests/).*"
 FormatStyle: "file"
 CheckOptions:
   readability-identifier-naming.ClassCase: "CamelCase"

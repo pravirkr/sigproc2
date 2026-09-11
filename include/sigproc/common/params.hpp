@@ -3,7 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "sigproc/common/types.hpp"
+#include <sigproc/common/types.hpp>
 
 namespace sigproc::params {
 
