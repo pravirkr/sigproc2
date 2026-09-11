@@ -1,121 +1,211 @@
 #include <sigproc/io.hpp>
 
-#include <filesystem>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <format>
+#include <iostream>
+#include <stdexcept>
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include <sigproc/bits.hpp>
 
 #include "sigproc/exceptions.hpp"
-#include "sigproc/utils.hpp"
+#include "sigproc/header_codec.hpp"
 
 namespace sigproc::io {
 
-namespace fs = std::filesystem;
+namespace {
 
-FileBase::FileBase(const std::vector<std::string>& filenames, std::string mode)
-    : m_filenames(filenames),
-      m_mode(std::move(mode)) {
-    if (filenames.empty()) {
-        throw std::invalid_argument("Empty file list");
-    }
-    open_file(0);
-}
-FileBase::~FileBase() { close_current(); }
-
-bool FileBase::eos() {
-    // First check if we are at the end of the current file
-    bool eof = m_file_stream.tellg() == fs::file_size(m_filenames[m_ifileCur]);
-    // Now check if we are at the end of the list of files
-    bool eol = m_ifileCur == m_filenames.size() - 1;
-    return eof && eol;
+[[nodiscard]] bool is_stdio_name(const std::string& filename) {
+    return filename.empty() || filename == "-";
 }
 
-void FileBase::open_file(size_t ifile) {
-    if (ifile < 0 || ifile >= m_filenames.size()) {
-        throw std::out_of_range(std::format("Invalid file index: {}", ifile));
-    }
-    if (!fs::exists(m_filenames[ifile])) {
-        throw std::invalid_argument(
-            std::format("File does not exist: {}", m_filenames[ifile]));
-    }
-
-    if (ifile != m_ifileCur) {
-        close_current();
-        auto file_mode = detail::map_utils::get_value(m_modeMap, m_mode);
-        m_file_stream.open(m_filenames[ifile].c_str(), file_mode);
-        error_check::check_stream(m_file_stream, m_filenames[ifile]);
-        m_ifileCur = ifile;
-    }
-}
-
-void FileBase::close_current() {
-    if (m_file_stream.is_open()) {
-        m_file_stream.close();
-    }
-}
+} // namespace
 
 FileIO::FileIO(const std::string& filename, int nbits)
     : m_nbits(static_cast<SizeType>(nbits)),
       m_bitsinfo(static_cast<SizeType>(nbits)) {
-    m_file_stream.open(filename.c_str(),
-                       std::ifstream::in | std::ifstream::binary);
-    error_check::check_file(m_file_stream, filename);
+    if (is_stdio_name(filename)) {
+        m_in       = &std::cin;
+        m_seekable = detail::header_codec::is_istream_seekable(std::cin);
+        return;
+    }
+    m_owned_in = std::make_unique<std::ifstream>(
+        filename, std::ios::in | std::ios::binary);
+    if (!m_owned_in->is_open()) {
+        throw std::runtime_error(std::format("Cannot open file: {}", filename));
+    }
+    error_check::check_file(*m_owned_in, filename);
+    m_in       = m_owned_in.get();
+    m_seekable = true;
 }
 
-FileIO::~FileIO() { m_file_stream.close(); }
+FileIO::FileIO(std::istream& in, int nbits)
+    : m_nbits(static_cast<SizeType>(nbits)),
+      m_bitsinfo(static_cast<SizeType>(nbits)),
+      m_in(&in),
+      m_seekable(detail::header_codec::is_istream_seekable(in)) {}
 
-// Default bit order used when packing/unpacking sub-byte samples.
-namespace {
-constexpr std::string_view kBitOrder = "big";
-} // namespace
+FileIO::~FileIO() = default;
 
-/* read nread units of data from stream */
-void FileIO::read_data(std::vector<float>& block, int nread) {
-    // decide how to read the data based on the number of bits per sample
-    // read n/nbits bytes into character block containing n nbits-bit pairs
-    std::vector<uint8_t> buffer(nread * m_bitsinfo.get_itemsize());
-    m_file_stream.read(
-        reinterpret_cast<char*>(buffer.data()),
-        static_cast<std::streamsize>(buffer.size() / m_bitsinfo.get_bitfact()));
+bool FileIO::seekable() const noexcept { return m_seekable; }
 
-    if (m_bitsinfo.get_can_pack_unpack()) {
-        bits::unpack_in_place(buffer, m_nbits, std::string(kBitOrder));
+std::int64_t FileIO::tell_bytes() {
+    if (m_in == nullptr) {
+        throw std::runtime_error("FileIO has no input stream");
+    }
+    const auto pos = m_in->tellg();
+    if (!*m_in || pos == std::streampos(-1)) {
+        m_in->clear();
+        throw std::runtime_error("FileIO position is not available");
+    }
+    return static_cast<std::int64_t>(pos);
+}
+
+SizeType FileIO::read_data(std::vector<float>& block, int nread) {
+    if (m_in == nullptr) {
+        throw std::runtime_error("FileIO has no input stream");
+    }
+    if (nread <= 0) {
+        block.clear();
+        return 0;
+    }
+    const auto want_values = static_cast<SizeType>(nread);
+    const auto want_bytes  = bits::packed_nbytes(want_values, m_bitsinfo);
+    std::vector<std::byte> packed(want_bytes);
+    m_in->read(reinterpret_cast<char*>(packed.data()),
+               static_cast<std::streamsize>(want_bytes));
+    const auto got_bytes = static_cast<SizeType>(m_in->gcount());
+    if (m_in->eof()) {
+        m_in->clear(m_in->rdstate() & ~std::ios::failbit);
+    }
+    const auto got_values = bits::nvalues_from_nbytes(got_bytes, m_bitsinfo);
+    const auto nvalues    = std::min(want_values, got_values);
+    packed.resize(bits::packed_nbytes(nvalues, m_bitsinfo));
+    block.resize(nvalues);
+    if (nvalues == 0) {
+        return 0;
     }
 
-    float* buffer_ptr = reinterpret_cast<float*>(buffer.data());
-
-    block.clear();
-    block.resize(nread);
-    block.assign(buffer_ptr, buffer_ptr + block.size());
-}
-
-/* write block of data to stream */
-void FileIO::write_data(const std::vector<float>& block, int nwrite) {
-    // decide how to read the data based on the number of bits per sample
-    // write n/nbits bytes into character block containing n nbits-bit pairs
-    std::vector<uint8_t> buffer(nwrite * sizeof(float) / sizeof(uint8_t));
-
-    const uint8_t* block_ptr = reinterpret_cast<const uint8_t*>(block.data());
-    buffer.assign(block_ptr, block_ptr + buffer.size());
-
-    if (m_bitsinfo.get_can_pack_unpack()) {
-        bits::pack_inplace(buffer, m_nbits, std::string(kBitOrder));
-    }
-
-    m_file_stream.write(
-        reinterpret_cast<const char*>(buffer.data()),
-        static_cast<std::streamsize>(buffer.size() / m_bitsinfo.get_bitfact()));
-}
-
-/* get to the right place in the file stream. */
-void FileIO::seek_bytes(int nbytes, bool offset) {
-    if (offset) {
-        m_file_stream.seekg(nbytes, std::ios_base::cur);
+    const auto nbits = m_bitsinfo.get_nbits();
+    if (nbits == 1 || nbits == 2 || nbits == 4) {
+        bits::unpack_to_float(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(packed.data()),
+                packed.size()),
+            block, nbits);
+    } else if (nbits == 8) {
+        bits::u8_to_float(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t*>(packed.data()), nvalues),
+            block);
+    } else if (nbits == 16) {
+        bits::u16_to_float(
+            std::span<const std::uint16_t>(
+                reinterpret_cast<const std::uint16_t*>(packed.data()), nvalues),
+            block);
+    } else if (nbits == 32) {
+        bits::f32_copy(
+            std::span<const float>(
+                reinterpret_cast<const float*>(packed.data()), nvalues),
+            block);
     } else {
-        m_file_stream.seekg(nbytes);
+        throw std::invalid_argument(
+            std::format("Unsupported nbits: {}", nbits));
+    }
+    return nvalues;
+}
+
+void FileIO::write_data(const std::vector<float>& block, int nwrite) {
+    if (m_out == nullptr) {
+        throw std::runtime_error("FileIO has no output stream");
+    }
+    if (nwrite <= 0) {
+        return;
+    }
+    const auto nvalues = static_cast<SizeType>(nwrite);
+    std::vector<std::byte> packed(bits::packed_nbytes(nvalues, m_bitsinfo));
+    bits::from_float(std::span<const float>(block.data(), nvalues), packed,
+                     m_bitsinfo);
+    m_out->write(reinterpret_cast<const char*>(packed.data()),
+                 static_cast<std::streamsize>(packed.size()));
+    if (!m_out->good()) {
+        throw std::runtime_error("Failed to write sample payload");
+    }
+}
+
+void FileIO::seek_bytes(std::int64_t nbytes, bool offset) {
+    if (m_in == nullptr) {
+        throw std::runtime_error("FileIO has no input stream");
+    }
+    if (!m_seekable) {
+        if (!offset && nbytes == 0) {
+            return;
+        }
+        if (offset && nbytes == 0) {
+            return;
+        }
+        throw std::runtime_error("Cannot seek on a non-seekable stream");
+    }
+    if (offset) {
+        m_in->seekg(static_cast<std::streamoff>(nbytes), std::ios_base::cur);
+    } else {
+        m_in->seekg(static_cast<std::streamoff>(nbytes), std::ios_base::beg);
+    }
+    if (!*m_in) {
+        throw std::runtime_error("FileIO seek failed");
+    }
+}
+
+void FileIO::skip_bytes(std::int64_t nbytes) {
+    if (nbytes < 0) {
+        seek_bytes(nbytes, true);
+        return;
+    }
+    if (nbytes == 0) {
+        return;
+    }
+    if (m_seekable) {
+        seek_bytes(nbytes, true);
+        return;
+    }
+    std::vector<char> discard(static_cast<std::size_t>(
+        std::min(nbytes, static_cast<std::int64_t>(1 << 16))));
+    auto remaining = nbytes;
+    while (remaining > 0) {
+        const auto chunk =
+            std::min(remaining, static_cast<std::int64_t>(discard.size()));
+        m_in->read(discard.data(), static_cast<std::streamsize>(chunk));
+        const auto got = static_cast<std::int64_t>(m_in->gcount());
+        if (got <= 0) {
+            throw std::runtime_error("Unexpected EOF while skipping bytes");
+        }
+        remaining -= got;
+    }
+}
+
+void FileIO::copy_bytes(std::ostream& out, std::int64_t nbytes) {
+    if (nbytes < 0) {
+        throw std::invalid_argument("copy_bytes: negative length");
+    }
+    std::vector<char> buf(static_cast<std::size_t>(
+        std::min(nbytes, static_cast<std::int64_t>(1 << 16))));
+    auto remaining = nbytes;
+    while (remaining > 0) {
+        const auto chunk =
+            std::min(remaining, static_cast<std::int64_t>(buf.size()));
+        m_in->read(buf.data(), static_cast<std::streamsize>(chunk));
+        const auto got = static_cast<std::int64_t>(m_in->gcount());
+        if (got <= 0) {
+            throw std::runtime_error("Unexpected EOF while copying samples");
+        }
+        out.write(buf.data(), static_cast<std::streamsize>(got));
+        if (!out.good()) {
+            throw std::runtime_error("Failed while copying sample payload");
+        }
+        remaining -= got;
     }
 }
 

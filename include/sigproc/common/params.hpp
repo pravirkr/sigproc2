@@ -1,6 +1,8 @@
 #pragma once
 
+#include <array>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
 #include <sigproc/common/types.hpp>
@@ -45,7 +47,8 @@ const std::unordered_map<std::string, KeyInfo> kSigprocKeys = {
     {"tstart",
      {.type    = KeyType::kSDouble,
       .helpstr = "time stamp of first sample (MJD)"}},
-    {"tsamp", {.type = KeyType::kSDouble, .helpstr = "sample time (us)"}},
+    {"tsamp",
+     {.type = KeyType::kSDouble, .helpstr = "sampling interval (seconds)"}},
     {"fch1",
      {.type = KeyType::kSDouble, .helpstr = "frequency of channel 1 in MHz"}},
     {"foff",
@@ -61,7 +64,23 @@ const std::unordered_map<std::string, KeyInfo> kSigprocKeys = {
       .helpstr = "right ascension (J2000 hhmmss.ss)"}},
     {"src_dej",
      {.type = KeyType::kSDouble, .helpstr = "declination (J2000 ddmmss.ss)"}},
-    {"period", {.type = KeyType::kSDouble, .helpstr = "folding period (s)"}}};
+    {"period", {.type = KeyType::kSDouble, .helpstr = "folding period (s)"}},
+    {"fchannel",
+     {.type    = KeyType::kSDouble,
+      .helpstr = "frequency of a channel in a FREQUENCY_START table"}}};
+
+/// Encode order for newly constructed headers (K20 / K25). Markers and
+/// `fchannel` are emitted only by the frequency-table path, not from this list.
+inline constexpr std::array<std::string_view, 26> kEncodeOrder = {
+    "rawdatafile", "source_name",   "machine_id", "telescope_id", "data_type",
+    "barycentric", "pulsarcentric", "az_start",   "za_start",     "src_raj",
+    "src_dej",     "tstart",        "tsamp",      "nbits",        "nsamples",
+    "fch1",        "foff",          "nchans",     "nifs",         "refdm",
+    "period",      "signed",        "ibeam",      "nbeams",       "npuls",
+    "nbins"};
+
+/// Hard cap on `nchans` (hostile / truncated headers).
+inline constexpr int kMaxNchans = 10'000'000;
 
 const std::unordered_map<std::string, KeyInfo> kExtraKeys = {
     {"telescope", {.type = KeyType::kSString, .helpstr = "Telescope name."}},
