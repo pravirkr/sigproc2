@@ -26,6 +26,7 @@
 
 #include "sigproc/exceptions.hpp"
 #include "sigproc/header_codec.hpp"
+#include "sigproc/io_hdf5.hpp"
 #include "sigproc/utils.hpp"
 
 namespace sigproc::io {
@@ -175,8 +176,14 @@ SigprocHeader::get_dm_delays(double dm, std::string_view ref_freq) const {
 }
 
 bool SigprocHeader::fromfile(std::string_view filename) {
-    std::ifstream file_stream(std::string(filename),
-                              std::ios::in | std::ios::binary);
+    const auto path = std::string(filename);
+    if (io::is_hdf5_file(path)) {
+        io::require_hdf5_filesystem_path(path);
+        const io::Hdf5Reader reader(path);
+        *this = reader.hdr();
+        return true;
+    }
+    std::ifstream file_stream(path, std::ios::in | std::ios::binary);
     if (!file_stream.is_open()) {
         throw std::runtime_error(std::format("Cannot open file: {}", filename));
     }

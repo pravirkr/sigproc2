@@ -1,8 +1,8 @@
 #include <sigproc/filterbank.hpp>
 
 #include <algorithm>
-#include <climits>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 #include <iostream>
 #include <limits>
@@ -14,21 +14,46 @@
 
 #include <sigproc/bits.hpp>
 
+#include "sigproc/io_hdf5.hpp"
+
 namespace sigproc {
 
 namespace {
 
 [[nodiscard]] bool is_stdio_name(std::string_view name) {
-    return name.empty() || name == "-";
+    return io::is_stdio_name(name);
 }
 
 } // namespace
 
-void FilterbankReader::init_from_stream(std::istream& in) {
-    if (!hdr.fromstream(in)) {
-        throw std::runtime_error(
-            "Input is not a SIGPROC filterbank (missing HEADER_START)");
-    }
+bool is_hdf5_path(std::string_view path) noexcept {
+    return io::is_hdf5_path(path);
+}
+
+class FilterbankReader::Hdf5State {
+public:
+    explicit Hdf5State(const std::string& path) : m_reader(path) {}
+    io::Hdf5Reader m_reader;
+};
+
+class FilterbankWriter::Hdf5State {
+public:
+    Hdf5State(const std::string& path, io::SigprocHeader& hdr)
+        : m_writer(path, hdr) {}
+    io::Hdf5Writer m_writer;
+};
+
+FilterbankReader::~FilterbankReader()                           = default;
+FilterbankReader::FilterbankReader(FilterbankReader&&) noexcept = default;
+FilterbankReader&
+FilterbankReader::operator=(FilterbankReader&&) noexcept = default;
+
+FilterbankWriter::~FilterbankWriter()                           = default;
+FilterbankWriter::FilterbankWriter(FilterbankWriter&&) noexcept = default;
+FilterbankWriter&
+FilterbankWriter::operator=(FilterbankWriter&&) noexcept = default;
+
+void FilterbankReader::setup_geometry() {
     m_nbits = hdr.get<int>("nbits");
     const bits::BitsInfo info(static_cast<SizeType>(m_nbits));
     m_bitfact    = info.get_bitfact();
@@ -39,13 +64,30 @@ void FilterbankReader::init_from_stream(std::istream& in) {
         throw std::runtime_error("invalid bit packing factor");
     }
     m_stride_size = (m_stride_len * m_itemsize) / m_bitfact;
-    m_fileio      = std::make_unique<io::FileIO>(in, m_nbits);
     m_cur_sample  = 0;
+}
+
+void FilterbankReader::init_from_stream(std::istream& in) {
+    if (io::stream_has_hdf5_magic(in)) {
+        throw std::invalid_argument(std::string(io::kHdf5NeedsPath));
+    }
+    if (!hdr.fromstream(in)) {
+        throw std::runtime_error(
+            "Input is not a SIGPROC filterbank (missing HEADER_START)");
+    }
+    setup_geometry();
+    m_fileio = std::make_unique<io::FileIO>(in, m_nbits);
 }
 
 FilterbankReader::FilterbankReader(const std::string& filename) {
     if (is_stdio_name(filename)) {
         init_from_stream(std::cin);
+        return;
+    }
+    if (io::is_hdf5_file(filename)) {
+        m_hdf5 = std::make_unique<Hdf5State>(filename);
+        hdr    = m_hdf5->m_reader.hdr();
+        setup_geometry();
         return;
     }
     m_owned = std::make_unique<std::ifstream>(filename,
@@ -59,6 +101,9 @@ FilterbankReader::FilterbankReader(const std::string& filename) {
 FilterbankReader::FilterbankReader(std::istream& in) { init_from_stream(in); }
 
 SizeType FilterbankReader::nsamps() const {
+    if (m_hdf5) {
+        return m_hdf5->m_reader.nsamps();
+    }
     const auto n = hdr.get<int>("nsamples");
     return n < 0 ? 0 : static_cast<SizeType>(n);
 }
@@ -124,14 +169,34 @@ FilterbankReader::get_readplan(int gulp, int skipback, int start, int nsamps) {
 SizeType FilterbankReader::read_plan(SizeType nvalues,
                                      std::vector<float>& block,
                                      std::int64_t skip_values) {
-    const auto nread = m_fileio->read_data(
-        block,
-        static_cast<int>(std::min(
-            nvalues, static_cast<SizeType>(std::numeric_limits<int>::max()))));
+    SizeType nread = 0;
+    if (m_hdf5) {
+        nread = m_hdf5->m_reader.read_values(m_cur_sample, nvalues, block);
+    } else {
+        nread = m_fileio->read_data(
+            block, static_cast<int>(std::min(
+                       nvalues, static_cast<SizeType>(
+                                    std::numeric_limits<int>::max()))));
+    }
     if (m_stride_len > 0) {
         m_cur_sample += nread / m_stride_len;
     }
     if (skip_values != 0 && nread > 0) {
+        if (m_hdf5) {
+            if (m_stride_len == 0) {
+                return nread;
+            }
+            if (skip_values < 0) {
+                const auto back =
+                    static_cast<SizeType>(-skip_values) / m_stride_len;
+                m_cur_sample =
+                    m_cur_sample > back ? m_cur_sample - back : SizeType{0};
+            } else {
+                m_cur_sample +=
+                    static_cast<SizeType>(skip_values) / m_stride_len;
+            }
+            return nread;
+        }
         const auto bytes =
             (skip_values * static_cast<std::int64_t>(m_itemsize)) /
             static_cast<std::int64_t>(m_bitfact);
@@ -158,6 +223,12 @@ SizeType FilterbankReader::read_plan(SizeType nvalues,
 void FilterbankReader::read_block(SizeType start_sample,
                                   SizeType nsamps,
                                   std::vector<float>& block) {
+    if (m_hdf5) {
+        m_hdf5->m_reader.read_values(start_sample, nsamps * m_stride_len,
+                                     block);
+        m_cur_sample = start_sample + nsamps;
+        return;
+    }
     seek_sample(start_sample);
     m_fileio->read_data(block, static_cast<int>(nsamps * m_stride_len));
     m_cur_sample = start_sample + nsamps;
@@ -165,6 +236,10 @@ void FilterbankReader::read_block(SizeType start_sample,
 
 void FilterbankReader::seek_sample(SizeType sample) {
     if (sample == m_cur_sample) {
+        return;
+    }
+    if (m_hdf5) {
+        m_cur_sample = sample;
         return;
     }
     const auto dest_bytes =
@@ -188,6 +263,10 @@ void FilterbankReader::seek_sample(SizeType sample) {
 }
 
 void FilterbankReader::write_raw_header(std::ostream& out) const {
+    if (m_hdf5) {
+        throw std::runtime_error(
+            "write_raw_header: FBH5 files have no SIGPROC byte header");
+    }
     const auto raw = hdr.raw_header();
     if (raw.empty()) {
         throw std::runtime_error(
@@ -203,6 +282,11 @@ void FilterbankReader::write_raw_header(std::ostream& out) const {
 void FilterbankReader::copy_samples(std::ostream& out,
                                     SizeType start_sample,
                                     SizeType nsamps) {
+    if (m_hdf5) {
+        m_hdf5->m_reader.copy_packed(out, start_sample, nsamps);
+        m_cur_sample = start_sample + nsamps;
+        return;
+    }
     seek_sample(start_sample);
     const auto nbytes = static_cast<std::int64_t>(nsamps) *
                         static_cast<std::int64_t>(m_stride_size);
@@ -220,15 +304,19 @@ FilterbankWriter::FilterbankWriter(const std::string& filename,
       m_bitsinfo(static_cast<SizeType>(m_nbits)) {
     if (is_stdio_name(filename)) {
         m_out = &std::cout;
-    } else {
-        m_owned = std::make_unique<std::ofstream>(
-            filename, std::ios::out | std::ios::binary);
-        if (!m_owned->is_open()) {
-            throw std::runtime_error(
-                std::format("Cannot open file: {}", filename));
-        }
-        m_out = m_owned.get();
+        write_header(hdr);
+        return;
     }
+    if (io::is_hdf5_path(filename)) {
+        m_hdf5 = std::make_unique<Hdf5State>(filename, hdr);
+        return;
+    }
+    m_owned = std::make_unique<std::ofstream>(filename,
+                                              std::ios::out | std::ios::binary);
+    if (!m_owned->is_open()) {
+        throw std::runtime_error(std::format("Cannot open file: {}", filename));
+    }
+    m_out = m_owned.get();
     write_header(hdr);
 }
 
@@ -245,6 +333,11 @@ void FilterbankWriter::write_block(const std::vector<float>& block,
         return;
     }
     const auto nvalues = static_cast<SizeType>(block_len);
+    if (m_hdf5) {
+        m_hdf5->m_writer.write_block(
+            std::span<const float>(block.data(), nvalues));
+        return;
+    }
     std::vector<std::byte> packed(bits::packed_nbytes(nvalues, m_bitsinfo));
     bits::from_float(std::span<const float>(block.data(), nvalues), packed,
                      m_bitsinfo);

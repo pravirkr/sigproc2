@@ -186,11 +186,11 @@ executables. `lib/sigproc/` is not installed.
 - `sig_filedit` ← `filedit` (in-place; `--dry-run`; same encoded length)
 
 **Library in place (extend, do not replace):** `sigproc::io::SigprocHeader`,
-`FilterbankReader` / `FilterbankWriter`, `sigproc::bits`, `sigproc::kernels`,
+`FilterbankReader` / `FilterbankWriter` (`.fil` plus FBH5 / HDF5 dispatch),
+`sigproc::bits`, `sigproc::kernels`,
 `sigproc::astro`, `sigproc::params`, `sigproc::fake`, `sigproc::TimeSeries`.
 
-**Next (library-first, then CLI):** FBH5 (PR-19).
-Dedisperse / fold / seek / RFI / tree wait for
+**Next:** Dedisperse / fold / seek / RFI / tree wait for
 [`docs/future-plan.md`](docs/future-plan.md).
 
 **Library types to add when a CLI needs them** (sigpyproc3-shaped, C++):

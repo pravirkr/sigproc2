@@ -4,6 +4,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <sigproc/bits.hpp>
@@ -12,6 +13,14 @@
 #include <sigproc/io.hpp>
 
 namespace sigproc {
+
+/**
+ * @brief True when `path` ends in `.h5`, `.hdf5`, or `.fbh5`
+ * (case-insensitive).
+ *
+ * Does not open the file. HDF5 stdin/stdout (`"-"`) is not a path.
+ */
+[[nodiscard]] bool is_hdf5_path(std::string_view path) noexcept;
 
 /**
  * @brief One gulp of a filterbank read loop.
@@ -29,13 +38,19 @@ struct ReadPlan {
 /**
  * @brief Reads SIGPROC filterbank data (header followed by samples).
  *
- * Filename empty or "-" selects stdin. HDF5 paths are rejected until the
- * FBH5 backend is wired (PR-19).
+ * Filename empty or "-" selects stdin. Paths ending in `.h5` / `.hdf5` /
+ * `.fbh5`, or files that start with the HDF5 signature, dispatch to the
+ * private FBH5 backend. HDF5 requires a filesystem path.
  */
 class FilterbankReader {
 public:
     explicit FilterbankReader(const std::string& filename);
     explicit FilterbankReader(std::istream& in);
+    FilterbankReader(const FilterbankReader&)            = delete;
+    FilterbankReader& operator=(const FilterbankReader&) = delete;
+    FilterbankReader(FilterbankReader&&) noexcept;
+    FilterbankReader& operator=(FilterbankReader&&) noexcept;
+    ~FilterbankReader();
 
     /**
      * @brief Build a plan describing how to iterate over the data in blocks.
@@ -87,9 +102,12 @@ public:
 
 private:
     void init_from_stream(std::istream& in);
+    void setup_geometry();
 
+    class Hdf5State;
     std::unique_ptr<std::ifstream> m_owned;
     std::unique_ptr<io::FileIO> m_fileio;
+    std::unique_ptr<Hdf5State> m_hdf5;
     int m_nbits{};
     SizeType m_bitfact{};
     SizeType m_itemsize{};
@@ -101,12 +119,18 @@ private:
 /**
  * @brief Writes SIGPROC filterbank data (header followed by samples).
  *
- * Filename empty or "-" selects stdout (binary).
+ * Filename empty or "-" selects stdout (binary). Paths ending in `.h5` /
+ * `.hdf5` / `.fbh5` write FBH5. HDF5 forbids `"-"` / empty / ostream.
  */
 class FilterbankWriter {
 public:
     FilterbankWriter(const std::string& filename, io::SigprocHeader& hdr);
     FilterbankWriter(std::ostream& out, io::SigprocHeader& hdr);
+    FilterbankWriter(const FilterbankWriter&)            = delete;
+    FilterbankWriter& operator=(const FilterbankWriter&) = delete;
+    FilterbankWriter(FilterbankWriter&&) noexcept;
+    FilterbankWriter& operator=(FilterbankWriter&&) noexcept;
+    ~FilterbankWriter();
 
     /// @brief Write `block_len` float samples, quantized to the header nbits.
     void write_block(const std::vector<float>& block, int block_len);
@@ -114,10 +138,12 @@ public:
 private:
     void write_header(io::SigprocHeader& hdr);
 
+    class Hdf5State;
     int m_nbits{};
     bits::BitsInfo m_bitsinfo;
     std::unique_ptr<std::ofstream> m_owned;
     std::ostream* m_out = nullptr;
+    std::unique_ptr<Hdf5State> m_hdf5;
 };
 
 } // namespace sigproc

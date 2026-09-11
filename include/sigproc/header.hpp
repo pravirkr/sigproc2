@@ -186,6 +186,10 @@ public:
     /// @brief True if `key` is in the encode write-set.
     [[nodiscard]] bool is_present(std::string_view key) const noexcept;
 
+    /// Sparse-encode key list (file order / `kEncodeOrder`). FBH5 writes these
+    /// as dataset attributes.
+    [[nodiscard]] std::vector<std::string> encode_keys() const;
+
     /**
      * @brief Patch present keys in `raw_header()` without changing length.
      *
@@ -211,7 +215,6 @@ private:
     void append_encoded_key(std::vector<char>& buffer,
                             const std::string& key) const;
     void append_freq_table(std::vector<char>& buffer) const;
-    [[nodiscard]] std::vector<std::string> encode_keys() const;
 };
 
 // ===================== TEMPLATE IMPLEMENTATIONS =====================
