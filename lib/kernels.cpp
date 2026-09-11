@@ -1,5 +1,8 @@
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <vector>
 
 #include <sigproc/kernels.hpp>
 
@@ -212,6 +215,86 @@ void dice_channels(std::span<const float> in,
             }
         }
     }
+}
+
+float gulp_median(std::span<const float> in) {
+    if (in.empty()) {
+        return 0.0F;
+    }
+    std::vector<float> copy(in.begin(), in.end());
+    const auto n   = copy.size();
+    const auto mid = n / 2;
+    std::nth_element(copy.begin(),
+                     copy.begin() + static_cast<std::ptrdiff_t>(mid),
+                     copy.end());
+    if (n % 2 == 1) {
+        return copy[mid];
+    }
+    const float upper = copy[mid];
+    const float lower = *std::max_element(
+        copy.begin(), copy.begin() + static_cast<std::ptrdiff_t>(mid));
+    return 0.5F * (lower + upper);
+}
+
+void flatten_gulp(std::span<const float> in,
+                  std::span<float> out,
+                  float median,
+                  float scale) {
+    if (out.size() < in.size()) {
+        throw std::invalid_argument("flatten_gulp: output span too small");
+    }
+    const int n         = static_cast<int>(in.size());
+    const float* in_ptr = in.data();
+    float* out_ptr      = out.data();
+    if (scale == 0.0F) {
+#pragma omp parallel for default(none) shared(out_ptr, n)
+        for (int i = 0; i < n; ++i) {
+            out_ptr[i] = 0.0F;
+        }
+        return;
+    }
+#pragma omp parallel for default(none) shared(in_ptr, out_ptr, n, median, scale)
+    for (int i = 0; i < n; ++i) {
+        out_ptr[i] = (in_ptr[i] - median) / scale;
+    }
+}
+
+void clip_gulp(std::span<const float> in, std::span<float> out) {
+    if (out.size() < in.size()) {
+        throw std::invalid_argument("clip_gulp: output span too small");
+    }
+    if (in.empty()) {
+        return;
+    }
+    const float median  = gulp_median(in);
+    const int n         = static_cast<int>(in.size());
+    const float* in_ptr = in.data();
+    double sum          = 0.0;
+    double ssq          = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double x = static_cast<double>(in_ptr[i]);
+        sum += x;
+        ssq += x * x;
+    }
+    const double inv  = 1.0 / static_cast<double>(n);
+    const double mean = sum * inv;
+    const double mnsq = ssq * inv;
+    const double var  = mnsq - mean * mean;
+    const float sigma = var > 0.0 ? static_cast<float>(std::sqrt(var)) : 0.0F;
+    float* out_ptr    = out.data();
+#pragma omp parallel for default(none) shared(in_ptr, out_ptr, n, median, sigma)
+    for (int i = 0; i < n; ++i) {
+        const float x = in_ptr[i];
+        out_ptr[i]    = std::fabs(x - median) > sigma ? median : x;
+    }
+}
+
+double pulse_phase(std::int64_t index, double tsamp, double period) {
+    if (period <= 0.0) {
+        throw std::invalid_argument("pulse_phase: period must be > 0");
+    }
+    const double turn = static_cast<double>(index + 1) * tsamp / period;
+    return turn - std::floor(turn);
 }
 
 } // namespace sigproc::kernels

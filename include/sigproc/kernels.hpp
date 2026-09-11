@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <span>
 
 namespace sigproc::kernels {
@@ -62,5 +63,45 @@ void dice_channels(std::span<const float> in,
                    int nifs,
                    int nsamps,
                    bool collapse);
+
+/// Original `flatten.c` / `clip.c` gulp length in **values**, not spectra.
+inline constexpr int kTimGulpValues = 32768;
+
+/**
+ * @brief Median of a 1-D gulp. Does not mutate `in`.
+ *
+ * Even-length gulps use the mean of the two central order statistics.
+ * Empty input returns 0. This is not Numerical Recipes `nrselect`.
+ */
+[[nodiscard]] float gulp_median(std::span<const float> in);
+
+/**
+ * @brief Gulp-median flatten: `out[i] = (in[i] - median) / scale`.
+ *
+ * If `scale == 0`, writes zeros (all-zero file / original uninitialized
+ * `median0`). `in` and `out` may be the same buffer. Layout is a 1-D
+ * time-major vector, not a per-channel sliding window.
+ */
+void flatten_gulp(std::span<const float> in,
+                  std::span<float> out,
+                  float median,
+                  float scale);
+
+/**
+ * @brief Replace values with `|x - median| > sigma` by the gulp median.
+ *
+ * `sigma` is the gulp RMS around the mean (`sqrt(mean(x²) - mean²)`).
+ * `in` and `out` may be the same buffer.
+ */
+void clip_gulp(std::span<const float> in, std::span<float> out);
+
+/**
+ * @brief Pulse phase of 0-based sample `index` (original `blanker.c`).
+ *
+ * Original increments `turn += tsamp/period` **before** using the sample, so
+ * sample 0 has phase `frac(tsamp/period)`.
+ */
+[[nodiscard]] double
+pulse_phase(std::int64_t index, double tsamp, double period);
 
 } // namespace sigproc::kernels
