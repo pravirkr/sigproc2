@@ -5,8 +5,6 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
-#include <map>
-#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -92,16 +90,14 @@ int main(int argc, char** argv) {
     gulp =
         static_cast<int>(std::ceil(static_cast<double>(gulp) / naddt) * naddt);
 
-    std::map<std::string, sigproc::HeaderValue> out_hdr_map = {
-        {"tsamp", reader.hdr.get<double>("tsamp") * naddt},
-        {"foff", reader.hdr.get<double>("foff") * naddc},
-        {"nchans", in_nchans / naddc},
-        {"nbits", out_nbits},
-        {"nsamples", in_nsamp > 0 ? in_nsamp / naddt : 0}};
-    if (in_nsamp <= 0) {
-        out_hdr_map.erase("nsamples");
+    auto out_hdr = reader.hdr;
+    out_hdr.set("tsamp", reader.hdr.get<double>("tsamp") * naddt);
+    out_hdr.set("foff", reader.hdr.get<double>("foff") * naddc);
+    out_hdr.set("nchans", in_nchans / naddc);
+    out_hdr.set("nbits", out_nbits);
+    if (in_nsamp > 0) {
+        out_hdr.set("nsamples", in_nsamp / naddt);
     }
-    reader.hdr.update(out_hdr_map);
 
     const int in_stride  = in_nchans * in_nifs;
     const int out_stride = (in_nchans / naddc) * in_nifs; // nifs unchanged
@@ -135,20 +131,13 @@ int main(int argc, char** argv) {
     };
 
     if (headerless) {
-        // Still need a writer that skips the header: write to a sink after
-        // encoding would require a separate path. Re-open via FilterbankWriter
-        // is not headerless. Write samples through a throwaway header then...
-        // Use FilterbankWriter but we already wrote the header if we construct
-        // it. For headerless, stream samples only via bits::from_float.
-        sigproc::io::SigprocHeader& hdr = reader.hdr;
-        auto* out                       = &std::cout;
+        auto* out = &std::cout;
         std::ofstream owned;
         if (!sigproc::cli::is_stdio_path(outfile)) {
             owned.open(outfile, std::ios::binary);
             out = &owned;
         }
-        sigproc::bits::BitsInfo info(
-            static_cast<sigproc::SizeType>(hdr.get<int>("nbits")));
+        sigproc::bits::BitsInfo info(static_cast<sigproc::SizeType>(out_nbits));
         std::vector<float> out_arr(
             static_cast<std::size_t>(gulp * out_stride / naddt));
         std::vector<float> block;
@@ -185,7 +174,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    sigproc::FilterbankWriter writer(outfile, reader.hdr);
+    sigproc::FilterbankWriter writer(outfile, out_hdr);
     write_payload(&writer);
     return 0;
 }

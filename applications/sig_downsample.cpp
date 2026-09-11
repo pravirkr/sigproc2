@@ -7,7 +7,6 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -24,18 +23,22 @@ int main(int argc, char** argv) {
     CLI::App app{"downsample - reduce time resolution of filterbank data "
                  "(32-bit out, time only)"};
     sigproc::cli::configure_app(app);
+    app.footer("Original: downsample infile outfile nadd. Time only; output "
+               "nbits is 32. extras: -t/--numsamps, -o/--out.");
 
     std::string infile;
     std::string outfile;
     int nadd = 0;
 
     app.add_option("infile", infile, "Input filterbank file")->required();
-    app.add_option("outfile", outfile,
-                   "Output file (optional positional; default stdout)");
-    app.add_option("nadd", nadd, "Time samples to add (optional positional)");
-    app.add_option("-t,--numsamps", nadd,
-                   "Time samples to add (original positional nadd)");
-    sigproc::cli::add_output_file(app, outfile);
+    // One option: positional outfile, -o, and --out. Do not also call
+    // add_output_file() — CLI11 would see a second --outfile.
+    app.add_option("-o,--out,out_fil", outfile,
+                   "Output file (positional outfile, -o, or --out; default "
+                   "stdout; '-' is stdout)")
+        ->option_text("outfile");
+    app.add_option("-t,--numsamps,nadd", nadd, "Time samples to add")
+        ->option_text("nadd");
 
     int gulp = sigproc::cli::kDefaultGulp;
     sigproc::cli::add_gulp_flag(app, gulp);
@@ -62,17 +65,17 @@ int main(int argc, char** argv) {
         gulp = static_cast<int>(std::ceil(static_cast<double>(gulp) / nadd) *
                                 nadd);
 
-        std::map<std::string, sigproc::HeaderValue> upd = {
-            {"tsamp",
-             reader.hdr.get<double>("tsamp") * static_cast<double>(nadd)},
-            {"nbits", 32},
-            {"nsamples", in_nsamp > 0 ? in_nsamp / nadd : 0}};
-        if (in_nsamp <= 0) {
-            upd.erase("nsamples");
+        // Copy the header for output. Mutating reader.hdr.nsamples before
+        // get_readplan would truncate the input gulp.
+        auto out_hdr = reader.hdr;
+        out_hdr.set("tsamp", reader.hdr.get<double>("tsamp") *
+                                 static_cast<double>(nadd));
+        out_hdr.set("nbits", 32);
+        if (in_nsamp > 0) {
+            out_hdr.set("nsamples", in_nsamp / nadd);
         }
-        reader.hdr.update(upd);
 
-        sigproc::FilterbankWriter writer(outfile, reader.hdr);
+        sigproc::FilterbankWriter writer(outfile, out_hdr);
         std::vector<float> out_arr(
             static_cast<std::size_t>(gulp / nadd * in_stride));
         std::vector<float> block;
