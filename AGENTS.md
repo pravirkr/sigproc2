@@ -181,12 +181,15 @@ executables. `lib/sigproc/` is not installed.
 - `sig_flatten` ← `flatten` (`TimeSeries`, gulp-median, `data_type=2`)
 - `sig_clip` ← `clip` (gulp `|x-median|>sigma` → median, `data_type=2`)
 - `sig_blanker` ← `blanker` (constant `-P` period; no polyco)
+- `sig_zerodm` ← `zerodm` (deterministic round-mean, recenter 64; no dither)
+- `sig_reader` ← `reader` / `readchunk` (`-t/--time -w/--width`)
+- `sig_filedit` ← `filedit` (in-place; `--dry-run`; same encoded length)
 
 **Library in place (extend, do not replace):** `sigproc::io::SigprocHeader`,
 `FilterbankReader` / `FilterbankWriter`, `sigproc::bits`, `sigproc::kernels`,
 `sigproc::astro`, `sigproc::params`, `sigproc::fake`, `sigproc::TimeSeries`.
 
-**Next (library-first, then CLI):** zerodm, reader, filedit, then FBH5 (PR-19).
+**Next (library-first, then CLI):** FBH5 (PR-19).
 Dedisperse / fold / seek / RFI / tree wait for
 [`docs/future-plan.md`](docs/future-plan.md).
 
