@@ -10,9 +10,6 @@ Based on Evan Keane's [fork](https://github.com/FRBs/sigproc) of Michael Keith's
 
 [![GitHub CI](https://github.com/pravirkr/sigproc2/actions/workflows/build.yml/badge.svg)](https://github.com/pravirkr/sigproc2/actions/workflows/build.yml)
 
-See [AGENTS.md](AGENTS.md) for project direction, style, and the executable
-parity inventory. The original SIGPROC manual is [`docs/sigproc.pdf`](docs/sigproc.pdf).
-
 ## Requirements
 
 - GCC >= 14.2 or LLVM Clang >= 18.0

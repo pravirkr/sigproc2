@@ -181,6 +181,10 @@ executables. `lib/sigproc/` is not installed.
 downsample, flatten, zerodm, clip / blanker, reader, filedit, dice, then
 dedisperse, fold, seek, RFI.
 
+Staff those from [`docs/implementation-plan.md`](docs/implementation-plan.md)
+(Phase 0–4 + FBH5). First implement them and then proceed with implementing
+dedisperse / fold / seek / RFI / tree from [`docs/future-plan.md`](docs/future-plan.md).
+
 **Library types to add when a CLI needs them** (sigpyproc3-shaped, C++):
 `FilterbankBlock`, `TimeSeries`, `FourierSeries`, `FoldedCube`. Do not add them
 speculatively.
