@@ -1,6 +1,8 @@
 #pragma once
 
 #include <fstream>
+#include <iostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -62,5 +64,25 @@ inline void add_gulp_flag(CLI::App& app, int& gulp) {
     app.add_option("-g,--gulp", gulp,
                    "Time samples to read per gulp (def=16384)");
 }
+
+/// Binary stdout when `path` is empty or "-"; otherwise an owned ofstream.
+class OutputStream {
+public:
+    explicit OutputStream(const std::string& path) {
+        if (!is_stdio_path(path)) {
+            m_owned.open(path, std::ios::binary);
+            if (!m_owned) {
+                throw std::runtime_error("Cannot open output file: " + path);
+            }
+            m_out = &m_owned;
+        }
+    }
+
+    [[nodiscard]] std::ostream& get() const noexcept { return *m_out; }
+
+private:
+    std::ofstream m_owned;
+    std::ostream* m_out = &std::cout;
+};
 
 } // namespace sigproc::cli

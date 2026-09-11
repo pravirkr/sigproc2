@@ -14,6 +14,7 @@
 #include <sigproc/fake.hpp>
 #include <sigproc/filterbank.hpp>
 #include <sigproc/header.hpp>
+#include <sigproc/timeseries.hpp>
 
 #include "fil_test_utils.hpp"
 
@@ -64,6 +65,25 @@ void write_fil(const std::filesystem::path& path,
     hdr.set("tstart", tstart);
     sigproc::FilterbankWriter writer(path.string(), hdr);
     writer.write_block(samples, static_cast<int>(samples.size()));
+}
+
+void write_tim(const std::filesystem::path& path,
+               int nsamps,
+               double tsamp,
+               const std::vector<float>& samples) {
+    sigproc::io::SigprocHeader hdr;
+    hdr.set("source_name", std::string("TIM"));
+    hdr.set("data_type", 2);
+    hdr.set("nchans", 1);
+    hdr.set("nbits", 32);
+    hdr.set("nifs", 1);
+    hdr.set("nsamples", nsamps);
+    hdr.set("fch1", 1400.0);
+    hdr.set("tsamp", tsamp);
+    hdr.set("tstart", 50000.0);
+    hdr.set("refdm", 0.0);
+    sigproc::TimeSeries ts(std::move(hdr), samples);
+    ts.tofile(path.string());
 }
 
 } // namespace
@@ -494,5 +514,152 @@ TEST_CASE("sig_dice --collapse drops zapped channels") {
     REQUIRE(block == std::vector<float>{1.F, 2.F});
     std::filesystem::remove(fil);
     std::filesystem::remove(keep);
+    std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_flatten --help documents 1-D gulp semantics") {
+    if (!std::filesystem::exists(bin("sig_flatten"))) {
+        SKIP("sig_flatten not available");
+    }
+    const auto help = run_cmd(bin("sig_flatten").string() + " --help");
+    REQUIRE(help.find("-o") != std::string::npos);
+    REQUIRE(help.find("gulp") != std::string::npos);
+}
+
+TEST_CASE("sig_flatten constant nonzero gulp writes zeros as data_type=2") {
+    if (!std::filesystem::exists(bin("sig_flatten")) ||
+        !std::filesystem::exists(bin("sig_header"))) {
+        SKIP("sig_flatten or sig_header not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "flatten_const.fil";
+    const auto tim = dir / "flatten_const.tim";
+    write_fil(fil, 4, 4, 1400.0, 50000.0, std::vector<float>(16, 100.F));
+    const int rc =
+        std::system((bin("sig_flatten").string() + " " + fil.string() + " -o " +
+                     tim.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+
+    const auto datatype =
+        run_cmd(bin("sig_header").string() + " -datatype " + tim.string());
+    REQUIRE(datatype.find("time series") != std::string::npos);
+
+    sigproc::FilterbankReader reader(tim.string());
+    REQUIRE(reader.hdr.get<int>("data_type") == 2);
+    REQUIRE(reader.hdr.get<int>("nchans") == 1);
+    REQUIRE(reader.hdr.get<int>("nbits") == 32);
+    REQUIRE(reader.hdr.get<int>("nsamples") == 16);
+    std::vector<float> block;
+    reader.read_block(0, 16, block);
+    REQUIRE(block == std::vector<float>(16, 0.F));
+    std::filesystem::remove(fil);
+    std::filesystem::remove(tim);
+}
+
+TEST_CASE("sig_flatten all-zero file writes zeros") {
+    if (!std::filesystem::exists(bin("sig_flatten"))) {
+        SKIP("sig_flatten not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "flatten_zero.fil";
+    const auto tim = dir / "flatten_zero.tim";
+    write_fil(fil, 2, 4, 1400.0, 50000.0, std::vector<float>(8, 0.F), 32);
+    const int rc =
+        std::system((bin("sig_flatten").string() + " " + fil.string() + " -o " +
+                     tim.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(tim.string());
+    std::vector<float> block;
+    reader.read_block(0, 8, block);
+    REQUIRE(block == std::vector<float>(8, 0.F));
+    std::filesystem::remove(fil);
+    std::filesystem::remove(tim);
+}
+
+TEST_CASE("sig_clip replaces one spike and omitted -o writes stdout") {
+    if (!std::filesystem::exists(bin("sig_clip"))) {
+        SKIP("sig_clip not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "clip_spike.fil";
+    const auto tim = dir / "clip_spike.tim";
+    const auto std = dir / "clip_stdout.tim";
+    std::vector<float> samples(8, 1.F);
+    samples[7] = 100.F;
+    write_fil(fil, 1, 8, 1400.0, 50000.0, samples, 32);
+
+    const int rc =
+        std::system((bin("sig_clip").string() + " " + fil.string() + " -o " +
+                     tim.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(tim.string());
+    REQUIRE(reader.hdr.get<int>("data_type") == 2);
+    std::vector<float> block;
+    reader.read_block(0, 8, block);
+    REQUIRE(block == std::vector<float>(8, 1.F));
+
+    const int rc_std =
+        std::system((bin("sig_clip").string() + " " + fil.string() + " > " +
+                     std.string() + " 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc_std == 0);
+    sigproc::FilterbankReader r2(std.string());
+    REQUIRE(r2.hdr.get<int>("data_type") == 2);
+    std::filesystem::remove(fil);
+    std::filesystem::remove(tim);
+    std::filesystem::remove(std);
+}
+
+TEST_CASE("sig_blanker --help lists original -s -f -P") {
+    if (!std::filesystem::exists(bin("sig_blanker"))) {
+        SKIP("sig_blanker not available");
+    }
+    const auto help = run_cmd(bin("sig_blanker").string() + " --help");
+    REQUIRE(help.find("-s") != std::string::npos);
+    REQUIRE(help.find("-f") != std::string::npos);
+    REQUIRE(help.find("-P") != std::string::npos);
+    REQUIRE(help.find("phase") != std::string::npos);
+}
+
+TEST_CASE("sig_blanker blanks phase 0.25-0.5 of a 1 s period") {
+    if (!std::filesystem::exists(bin("sig_blanker"))) {
+        SKIP("sig_blanker not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto tim = dir / "blank_in.tim";
+    const auto out = dir / "blank_out.tim";
+    std::vector<float> samples(100);
+    for (int i = 0; i < 100; ++i) {
+        samples[static_cast<std::size_t>(i)] = 1000.F + static_cast<float>(i);
+    }
+    write_tim(tim, 100, 0.01, samples);
+
+    const int rc =
+        std::system((bin("sig_blanker").string() + " " + tim.string() +
+                     " -s 0.25 -f 0.5 -P 1.0 --seed 1 -o " + out.string() +
+                     " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(out.string());
+    REQUIRE(reader.hdr.get<int>("nbits") == 32);
+    REQUIRE(reader.hdr.get<int>("data_type") == 2);
+    std::vector<float> got;
+    reader.read_block(0, 100, got);
+    REQUIRE(got.size() == 100);
+    for (int i = 0; i < 100; ++i) {
+        const double phase = static_cast<double>(i + 1) * 0.01; // period = 1 s
+        const bool blank   = phase >= 0.25 && phase <= 0.5;
+        if (blank) {
+            REQUIRE(got[static_cast<std::size_t>(i)] !=
+                    samples[static_cast<std::size_t>(i)]);
+        } else {
+            REQUIRE(got[static_cast<std::size_t>(i)] ==
+                    samples[static_cast<std::size_t>(i)]);
+        }
+    }
+    std::filesystem::remove(tim);
     std::filesystem::remove(out);
 }
