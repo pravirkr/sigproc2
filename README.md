@@ -12,6 +12,8 @@ Based on Evan Keane's [fork](https://github.com/FRBs/sigproc) of Michael Keith's
 
 See [AGENTS.md](AGENTS.md) for project direction, style, and the executable
 parity inventory. The original SIGPROC manual is [`docs/sigproc.pdf`](docs/sigproc.pdf).
+The staffable rewrite plan is [`docs/implementation-plan.md`](docs/implementation-plan.md);
+the later search stack (not staffable yet) is [`docs/future-plan.md`](docs/future-plan.md).
 
 ## Requirements
 
