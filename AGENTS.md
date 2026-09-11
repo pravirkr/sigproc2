@@ -176,14 +176,16 @@ executables. `lib/sigproc/` is not installed.
 - `sig_fast_fake` ← `fast_fake` (trampoline)
 - `sig_extract` ← `extract`
 - `sig_downsample` ← `downsample`
+- `sig_splice` ← `splice` (always `FREQUENCY_START` table)
+- `sig_dice` ← `dice` (1-based keep file; default force-zeros)
 
 **Library in place (extend, do not replace):** `sigproc::io::SigprocHeader`,
 `FilterbankReader` / `FilterbankWriter`, `sigproc::bits`, `sigproc::kernels`,
 `sigproc::astro`, `sigproc::params`, `sigproc::fake`.
 
-**Next (library-first, then CLI):** splice, dice, flatten (`TimeSeries`),
-zerodm, clip / blanker, reader, filedit, then FBH5 (PR-19). Dedisperse / fold /
-seek / RFI / tree wait for [`docs/future-plan.md`](docs/future-plan.md).
+**Next (library-first, then CLI):** flatten (`TimeSeries`), zerodm, clip /
+blanker, reader, filedit, then FBH5 (PR-19). Dedisperse / fold / seek / RFI /
+tree wait for [`docs/future-plan.md`](docs/future-plan.md).
 
 **Library types to add when a CLI needs them** (sigpyproc3-shaped, C++):
 `FilterbankBlock`, `TimeSeries`, `FourierSeries`, `FoldedCube`. Do not add them
