@@ -2,45 +2,57 @@
 #
 # Cloud Agent bootstrap for sigproc2.
 #
-# sigproc2 is a C++23 project that needs a newer toolchain than Ubuntu 24.04
-# ships (GCC >= 15 and CMake >= 3.30), plus single-precision FFTW (with OpenMP)
-# and Ninja. This script provisions those and then configures the project,
-# which downloads and caches the CPM packages (spdlog, scnlib, CLI11, Catch2).
+# sigproc2 is a C++23 HPC project targeting GCC >= 14.2 or Clang >= 18,
+# and CMake >= 3.28 with Ninja. System dependencies include OpenMP, single-precision
+# FFTW, and HDF5.
 #
-# It is idempotent: re-running it is a fast no-op once the tools are present.
+# Designed for Ubuntu 24.04 LTS (Noble Numbat).
+# Idempotent: re-running is a fast no-op once tools are installed.
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
-# GCC 15 via the Ubuntu toolchain test PPA (base image ships GCC 13).
-if ! command -v g++-15 >/dev/null 2>&1; then
-  sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+# Ensure 'universe' is enabled (supplies gcc-14 and clang-18 natively on Ubuntu 24.04)
+if ! grep -Eq "^deb .* noble(-updates)? universe" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
+  sudo apt-get update
+  sudo apt-get install -y --no-install-recommends software-properties-common
+  sudo add-apt-repository -y universe
 fi
 
-# CMake >= 3.30 from Kitware's APT repository (base image ships 3.28).
-if [ ! -f /usr/share/keyrings/kitware-archive-keyring.gpg ]; then
-  curl -fsSL https://apt.kitware.com/keys/kitware-archive-latest.asc \
-    | sudo gpg --dearmor -o /usr/share/keyrings/kitware-archive-keyring.gpg
-  echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main" \
-    | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
-fi
-
-sudo apt-get update
+# Install compilers, build tools, and core HPC numerical libraries
 sudo apt-get install -y --no-install-recommends \
-  gcc-15 g++-15 cmake ninja-build libfftw3-dev git curl ca-certificates
+  gcc-14 g++-14 \
+  clang-18 clang++-18 lld-18 \
+  cmake ninja-build \
+  libfftw3-dev libhdf5-dev libomp-dev \
+  git curl ca-certificates
 
-# Make GCC 15 the default C/C++ compiler (base image resolves cc/c++ to clang).
-sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 150 \
-  --slave /usr/bin/g++ g++ /usr/bin/g++-15
-sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-15 150
-sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-15 150
-sudo update-alternatives --set cc /usr/bin/gcc-15
-sudo update-alternatives --set c++ /usr/bin/g++-15
+# Set GCC 14 as the primary system compiler alternatives
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 \
+  --slave /usr/bin/g++ g++ /usr/bin/g++-14 \
+  --slave /usr/bin/gcov gcov /usr/bin/gcov-14
+sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-14 140
+sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-14 140
+sudo update-alternatives --set cc /usr/bin/gcc-14
+sudo update-alternatives --set c++ /usr/bin/g++-14
 
-# Configure the project; resolves/caches CPM dependencies and writes the Ninja
-# build files into ./build. Build the targets with: cmake --build build
+# Register Clang 18 alternatives for easy switching
+sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 \
+  --slave /usr/bin/clang++ clang++ /usr/bin/clang++-18
+
+# Configure CPM package cache and CMake project
+export CC=/usr/bin/gcc-14
+export CXX=/usr/bin/g++-14
 export CPM_SOURCE_CACHE="${CPM_SOURCE_CACHE:-$HOME/.cache/CPM}"
 mkdir -p "$CPM_SOURCE_CACHE"
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
-echo "sigproc2 env ready: $(gcc --version | head -1) | $(cmake --version | head -1) | ninja $(ninja --version)"
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DSIG_BUILD_TESTING=ON
+
+echo "=== sigproc2 build environment ready ==="
+echo "Compiler: $(gcc --version | head -1)"
+echo "Clang:    $(clang-18 --version | head -1)"
+echo "CMake:    $(cmake --version | head -1)"
+echo "Ninja:    ninja $(ninja --version)"
+echo "Build:    cmake --build build --parallel \"\$(nproc)\""

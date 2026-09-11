@@ -1,4 +1,4 @@
-#include "sigproc/filterbank.hpp"
+#include <sigproc/filterbank.hpp>
 
 #include <algorithm>
 #include <cstdint>

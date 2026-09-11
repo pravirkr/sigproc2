@@ -7,7 +7,7 @@
 #include <span>
 #include <string>
 
-#include "sigproc/common/types.hpp"
+#include <sigproc/common/types.hpp>
 
 /**
  * @file numbits.hpp
@@ -96,8 +96,11 @@ private:
  * @param bitorder Bit order of the input packed data
  * @param parallel Whether to use parallel processing
  */
-void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-            size_t nbits, const std::string& bitorder, bool parallel = false);
+void unpack(std::span<const uint8_t> inbuffer,
+            std::span<uint8_t> outbuffer,
+            size_t nbits,
+            const std::string& bitorder,
+            bool parallel = false);
 
 /**
  * @brief Unpacks 1, 2, or 4 bit data from 8 bit bytes using a lookup table
@@ -109,8 +112,10 @@ void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
  * @param parallel Whether to use parallel processing
  */
 void unpack_lookup(std::span<const uint8_t> inbuffer,
-                   std::span<uint8_t> outbuffer, size_t nbits,
-                   const std::string& bitorder, bool parallel = false);
+                   std::span<uint8_t> outbuffer,
+                   size_t nbits,
+                   const std::string& bitorder,
+                   bool parallel = false);
 
 /**
  * @brief Unpacks 1, 2, or 4 bit data from 8 bit bytes in place
@@ -122,7 +127,8 @@ void unpack_lookup(std::span<const uint8_t> inbuffer,
  * @param nbits  Number of bits to unpack
  * @param bitorder  Bit order of the input packed data
  */
-void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
+void unpack_in_place(std::span<uint8_t> inbuffer,
+                     size_t nbits,
                      const std::string& bitorder);
 
 /**
@@ -134,8 +140,11 @@ void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
  * @param bitorder Bit order of the output packed data
  * @param parallel Whether to use parallel processing
  */
-void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-          size_t nbits, const std::string& bitorder, bool parallel = false);
+void pack(std::span<const uint8_t> inbuffer,
+          std::span<uint8_t> outbuffer,
+          size_t nbits,
+          const std::string& bitorder,
+          bool parallel = false);
 
 /**
  * @brief Packs 1, 2, or 4 bit data into 8 bit bytes in place
@@ -144,7 +153,8 @@ void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
  * @param nbits Number of bits to pack
  * @param bitorder Bit order of the output packed data
  */
-void pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
+void pack_inplace(std::span<uint8_t> inbuffer,
+                  size_t nbits,
                   const std::string& bitorder);
 
 } // namespace sigproc::bits

@@ -1,9 +1,13 @@
-#include "sigproc/kernels.hpp"
+#include <sigproc/kernels.hpp>
 
 namespace sigproc::kernels {
 
-void add_channels(std::span<const float> inbuffer, std::span<float> outbuffer,
-                  int chan_start, int nchans, int nsamps, int index) {
+void add_channels(std::span<const float> inbuffer,
+                  std::span<float> outbuffer,
+                  int chan_start,
+                  int nchans,
+                  int nsamps,
+                  int index) {
 #pragma omp parallel for default(none)                                         \
     shared(inbuffer, outbuffer, chan_start, nchans, nsamps, index)
     for (int ii = 0; ii < nsamps; ii++) {
@@ -13,8 +17,11 @@ void add_channels(std::span<const float> inbuffer, std::span<float> outbuffer,
     }
 }
 
-void add_samples(std::span<const float> inbuffer, std::span<double> outbuffer,
-                 int nchans, int nsamps, int nifs) {
+void add_samples(std::span<const float> inbuffer,
+                 std::span<double> outbuffer,
+                 int nchans,
+                 int nsamps,
+                 int nifs) {
 #pragma omp parallel for default(none)                                         \
     shared(inbuffer, outbuffer, nchans, nsamps, nifs)
     for (int ipol = 0; ipol < nifs; ipol++) {
@@ -27,8 +34,10 @@ void add_samples(std::span<const float> inbuffer, std::span<double> outbuffer,
     }
 }
 
-void get_bpass(std::span<const float> inbuffer, std::span<double> outbuffer,
-               int nchans, int nsamps) {
+void get_bpass(std::span<const float> inbuffer,
+               std::span<double> outbuffer,
+               int nchans,
+               int nsamps) {
 #pragma omp parallel for default(none)                                         \
     shared(inbuffer, outbuffer, nchans, nsamps)
     for (int jj = 0; jj < nchans; jj++) {
@@ -38,8 +47,12 @@ void get_bpass(std::span<const float> inbuffer, std::span<double> outbuffer,
     }
 }
 
-void downsample(std::span<const float> inbuffer, std::span<float> outbuffer,
-                int tfactor, int ffactor, int nchans, int nsamps) {
+void downsample(std::span<const float> inbuffer,
+                std::span<float> outbuffer,
+                int tfactor,
+                int ffactor,
+                int nchans,
+                int nsamps) {
     int newnsamps = nsamps / tfactor;
     int newnchans = nchans / ffactor;
     int totfactor = ffactor * tfactor;

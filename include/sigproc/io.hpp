@@ -1,6 +1,10 @@
 #pragma once
 
+#include <climits>
+#include <cstdint>
 #include <fstream>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <sigproc/bits.hpp>
@@ -45,8 +49,9 @@ struct StreamInfo {
 
 class FileReader : public FileBase {
 public:
-    FileReader(const StreamInfo& stream_info, const std::string& mode = "r",
-               int nbits = 8);
+    FileReader(const StreamInfo& stream_info,
+               const std::string& mode = "r",
+               int nbits               = 8);
     int cur_data_pos_file() const;
     int cur_data_pos_stream() const;
     std::vector<uint8_t> cread(int nunits) const;

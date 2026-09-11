@@ -1,10 +1,14 @@
 #pragma once
 
 #include <complex>
+#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <format>
+#include <ios>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 
 namespace sigproc {

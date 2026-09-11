@@ -29,22 +29,29 @@ double dms_to_rad(int deg, int minutes, double sec) noexcept;
 double deg_to_dms(double angle) noexcept;
 
 /**
- * @brief Convert RA string to radians.
+ * @brief Convert an RA string to radians.
  *
- * @param ra_string RA string in 'hh:mm:ss.ssss' format
- * @return double RA in radians
- * @throw std::invalid_argument if format is invalid
+ * Accepts `[+]hh:mm:ss.sss` with optional surrounding whitespace. Minutes and
+ * seconds must be < 60; hours must be < 24. Negative values are rejected.
+ *
+ * @param ra_string RA in 'hh:mm:ss.ssss' format
+ * @return RA in radians, in [0, 2*pi)
+ * @throw std::invalid_argument if the format is invalid or the value is out of range
  */
-double ra_to_rad(std::string_view ra_string);
+ double ra_to_rad(std::string_view ra_string);
 
 /**
- * @brief Convert DEC string to radians.
+ * @brief Convert a DEC string to radians.
  *
- * @param dec_string DEC string in 'dd:mm:ss.ssss' format
- * @return double DEC in radians
- * @throw std::invalid_argument if format is invalid
+ * Accepts `[+|-]dd:mm:ss.sss` with optional surrounding whitespace. Minutes and
+ * seconds must be < 60; the absolute value must be <= 90 degrees. A leading '-'
+ * is honoured even when the degree field is zero (e.g. "-00:30:00").
+ *
+ * @param dec_string DEC in 'dd:mm:ss.ssss' format
+ * @return DEC in radians, in [-pi/2, +pi/2]
+ * @throw std::invalid_argument if the format is invalid or the value is out of range
  */
-double dec_to_rad(std::string_view dec_string);
+ double dec_to_rad(std::string_view dec_string);
 
 /**
  * @brief Convert Modified Julian Date to Gregorian calendar string.

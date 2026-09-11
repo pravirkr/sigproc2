@@ -1,4 +1,4 @@
-#include "sigproc/bits.hpp"
+#include <sigproc/bits.hpp>
 
 #include <algorithm>
 #include <climits>
@@ -64,7 +64,7 @@ void unpack_2bit_lookup(std::span<const uint8_t> inbuffer,
     const auto& table =
         BigEndian ? kLookup2bit.table_big : kLookup2bit.table_little;
 #ifdef USE_OPENMP
-#pragma omp parallel for if (parallel) default(none)                           \
+#pragma omp parallel for if (Parallel) default(none)                           \
     shared(inbuffer, outbuffer, table)
 #endif
     for (size_t ii = 0; ii < inbuffer.size(); ii++) {
@@ -398,8 +398,11 @@ size_t get_bitorder_index(const std::string& bitorder) {
     return (bitorder[0] == 'b') ? 1 : 0;
 }
 
-void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-            size_t nbits, const std::string& bitorder, bool parallel) {
+void unpack(std::span<const uint8_t> inbuffer,
+            std::span<uint8_t> outbuffer,
+            size_t nbits,
+            const std::string& bitorder,
+            bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -411,8 +414,10 @@ void unpack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
 }
 
 void unpack_lookup(std::span<const uint8_t> inbuffer,
-                   std::span<uint8_t> outbuffer, size_t nbits,
-                   const std::string& bitorder, bool parallel) {
+                   std::span<uint8_t> outbuffer,
+                   size_t nbits,
+                   const std::string& bitorder,
+                   bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -423,7 +428,8 @@ void unpack_lookup(std::span<const uint8_t> inbuffer,
         inbuffer, outbuffer);
 }
 
-void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
+void unpack_in_place(std::span<uint8_t> inbuffer,
+                     size_t nbits,
                      const std::string& bitorder) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
@@ -433,8 +439,11 @@ void unpack_in_place(std::span<uint8_t> inbuffer, size_t nbits,
     kUnpackInPlaceDispatcher[nbits_index][bitorder_index](inbuffer);
 }
 
-void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
-          size_t nbits, const std::string& bitorder, bool parallel) {
+void pack(std::span<const uint8_t> inbuffer,
+          std::span<uint8_t> outbuffer,
+          size_t nbits,
+          const std::string& bitorder,
+          bool parallel) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");
     }
@@ -445,7 +454,8 @@ void pack(std::span<const uint8_t> inbuffer, std::span<uint8_t> outbuffer,
                                                                  outbuffer);
 }
 
-void pack_inplace(std::span<uint8_t> inbuffer, size_t nbits,
+void pack_inplace(std::span<uint8_t> inbuffer,
+                  size_t nbits,
                   const std::string& bitorder) {
     if (nbits != 1 && nbits != 2 && nbits != 4) {
         throw std::invalid_argument("Number of bits must be 1, 2, or 4");

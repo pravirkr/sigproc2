@@ -1,56 +1,196 @@
 # Agent Guidelines for sigproc2
 
-Rules for AI agents (and contributors) working in this repository. Read this
-before making changes.
+Rules for AI agents (and contributors). Do not renegotiate style, dependencies,
+or project goals in chat. Follow this file and the checked-in style configs.
 
-## Workflow & Git
+## What this repo is
 
-- **Never commit to `main` directly.** Always work on a branch and open a Pull
-  Request. The maintainer reviews every PR personally and merges it (and may
-  request changes first). Do not merge PRs yourself.
-- **Always commit under the maintainer's name:** `Pravir Kumar
-  <pravirka@gmail.com>`.
-- **Commit and PR messages:** keep them concise but describe all the changes.
-  Write for humans — clear, readable, no filler.
-- Make a separate commit for each logical change; do not force-push or amend
-  unless asked.
+A **C++23 HPC rewrite** of SIGPROC: a library (`libsigproc`) plus command-line
+tools in `applications/`. It is not a line-by-line port of the original C/Fortran
+tree.
+
+This iteration is **strictly C++**. Python bindings are out of scope. Do not add
+pybind11, nanobind, SWIG, or a Python package layout.
+
+## Sources of truth
+
+Use these in this order. Do not invent a different architecture or tool set.
+
+1. **Executable behavior.** Original SIGPROC
+   ([FRBs/sigproc](https://github.com/FRBs/sigproc)) and
+   [`docs/sigproc.pdf`](docs/sigproc.pdf). A rewritten tool must match original
+   capability or add to it. No silent regressions in numerics, SIGPROC header
+   keys, or the filterbank on-disk format. CLI flags may be modernized with
+   CLI11 if they remain a **superset** of the original.
+2. **Library shape.** The current `include/sigproc/` public API. Rearrange
+   internally in modern C++, but do not start a new layout. Seek inspiration from
+   [FRBs/sigpyproc3](https://github.com/FRBs/sigpyproc3) for design (`Header`, `FilReader`,
+   `block` / `timeseries` / `fourierseries`, `core/kernels`, `io/bits`). Do not
+   copy Python APIs blindly.
+3. **Style.** [`.clang-format`](.clang-format), [`.clang-tidy`](.clang-tidy),
+   [`.cmake-format.yaml`](.cmake-format.yaml). Run `clang-format` before
+   committing. Do not re-litigate these files.
+
+## Scope
+
+**In scope:** filterbank-native processing — header/IO, bit pack/unpack, kernels,
+then fake, splice, extract, downsample, flatten, zerodm, clip/blanker, reader,
+filedit, dice, dedisperse, fold, seek, RFI.
+
+**Out of scope:** Python bindings; historical raw-backend converters (`wapp2fb`,
+`bpp2fb`, `scamp2fb`, `pspm2fb`, …); PGPLOT UIs. PSRFITS is later, not now.
+
+**Binary names** use a `sig_` prefix (no PATH clash with original SIGPROC):
+
+| This rewrite    | Original SIGPROC |
+|-----------------|------------------|
+| `sig_header`    | `header`         |
+| `sig_bandpass`   | `bandpass`       |
+| `sig_decimate`   | `decimate`       |
+| `sig_chopfil`    | `chop_fil`       |
+
+Map new tools the same way: `sig_<original_name>` with underscores, not hyphens.
+
+## Two-layer C++ (HPC)
+
+This is high-performance scientific software. Never sacrifice hot-path
+performance for fashion.
+
+**Public API** (`include/sigproc/`): modern C++23. Prefer `std::span`, concepts,
+`std::format` / `std::print`, `std::optional`, `std::string_view`, RAII,
+exceptions (`std::runtime_error`, `std::invalid_argument`). Document public
+classes and functions with Doxygen comments.
+
+**Inner kernels** (`lib/`, `sigproc::bits`, `sigproc::kernels`): as low-level as
+needed. Raw loops, pointer arithmetic, lookup tables, OpenMP, and
+auto-vectorization are expected. Use "__restrict__" for pointers where appropriate.
+Do not wrap hot loops in `std::for_each`, `std::any`, or extra heap allocations
+for style. Do not introduce owning `new`/`delete`; use `std::vector` / `std::array`
+for storage and `std::span` at the API boundary.
+
+- Parallelism: **OpenMP only**. No `std::execution`, TBB, or other runtimes.
+- Prefer auto-vectorization. **xsimd** is available for measured hot paths; do
+  not sprinkle SIMD through the public API.
+- Release builds use `-O3 -ffast-math` by default. `-march=native` is
+  switchable (`-DSIG_ENABLE_NATIVE_ARCH=ON`, default ON).
+
+## Headers and includes
+
+`include/sigproc/` is the **public, installable API**. Applications, tests, and
+downstream users include these with **angle brackets**: `<sigproc/...>`.
+
+`lib/sigproc/` holds **private, non-installable** headers. They are visible only
+to the library via a PRIVATE include directory (`lib/`). Include them with
+**quotes**: `"sigproc/..."`. Never put private headers under `include/`. Never
+include private headers from public headers, applications, or tests.
+
+Include order (enforced by `.clang-format` `IncludeCategories`):
+
+1. Definition file (the `.cpp`'s matching header; always first)
+2. System headers (`<cmath>`, `<vector>`, …)
+3. Third-party headers (`<CLI/...>`, `<fmt/...>`, `<spdlog/...>`, `<omp.h>`, …)
+4. sigproc public headers (`<sigproc/...>`)
+5. sigproc private headers (`"sigproc/..."`)
+
+Public headers include only system, third-party, and other public sigproc
+headers. They must stay self-contained without private helpers.
+
+## Naming
+
+Follow `.clang-tidy` `readability-identifier-naming`:
+
+- Classes, structs, enums, type aliases: `CamelCase`
+- Functions, variables, parameters, members, namespaces: `lower_case`
+- Private/protected members: `m_` prefix
+- Constants / `constexpr`: `CamelCase` with `k` prefix (`kDispConst`)
+- Macros: `UPPER_CASE`
+
+## Dependencies
+
+Managed in [`cmake/sigprocDependencies.cmake`](cmake/sigprocDependencies.cmake).
+Do not add Boost or extra third-party libraries without an explicit maintainer
+request. Logging is **spdlog**. Project code uses `std::format`; fmt is pinned as spdlog's backend.
+fmt formatting can be used where `std::format` is not adequate.
+
+**Required to build**
+
+- GCC >= 14.2 or LLVM Clang >= 18.0 (AppleClang is not supported)
+- CMake >= 3.28, Ninja
+- OpenMP, single-precision FFTW (`fftw3f`), HDF5
+
+**CPM (fetched, pinned)**
+
+- fmt 12.1, spdlog 1.17 (header-only, spdlog uses external fmt)
+- CLI11 2.7 — applications
+- HighFive 3.3, xsimd 14 — build-tree only
+- Catch2 3.x — tests only (`-DSIG_BUILD_TESTING=ON`)
+
+Set `CPM_SOURCE_CACHE` to cache downloads. Cloud Agent setup:
+[`.cursor/environment.json`](.cursor/environment.json) and
+[`.cursor/install.sh`](.cursor/install.sh). Keep them in sync with this list.
+
+Do not put spdlog, fmt, HighFive, or xsimd includes in public headers.
+
+CMake sources use `file(GLOB … CONFIGURE_DEPENDS)`. Do not replace GLOB with
+an explicit `.cpp` list.
+
+## Build, test, sanitizers, coverage
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSIG_BUILD_TESTING=ON
+cmake --build build && ctest --test-dir build --output-on-failure
+
+cmake -S . -B build-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSIG_BUILD_TESTING=ON
+
+cmake -S . -B build-cov -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+  -DSIG_BUILD_TESTING=ON -DSIG_ENABLE_COVERAGE=ON
+
+# Portable Release (no -march=native); -ffast-math stays on
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSIG_ENABLE_NATIVE_ARCH=OFF
+```
+
+Install installs the library, public headers, CMake package config, and `sig_*`
+executables. `lib/sigproc/` is not installed.
+
+## Git workflow
+
+- **Never commit to `main`.** Work on a branch and open a Pull Request. The
+  maintainer reviews and merges. Do not merge PRs yourself.
+- Commit and PR messages: concise, describe all the changes, no filler.
+- One logical change per commit; do not force-push or amend unless asked.
 - **When in doubt, ask.** If requirements or scope are unclear, ask the
-  maintainer for direction rather than guessing.
+  maintainer rather than guessing.
 
-## Code Style
+## Parity inventory
 
-- Follow the conventions already present in the code, and the checked-in
-  `.clang-format` and `.clang-tidy` configurations.
-- Naming (from `.clang-tidy`): classes/structs/enums `CamelCase`; functions,
-  variables, parameters, members and namespaces `lower_case`; private/protected
-  members prefixed `m_`; constants and `constexpr` values `CamelCase` prefixed
-  `k` (e.g. `kDispConst`); type aliases `CamelCase`.
-- Formatting (from `.clang-format`): LLVM base, 4-space indent, pointers bind
-  left (`int* p`), one parameter per line when wrapping, aligned consecutive
-  assignments. Run `clang-format` before committing.
-- This is a modern **C++23** codebase: prefer `std::format`/`std::print`,
-  `std::span`, concepts, and standard library facilities over hand-rolled or
-  third-party equivalents. Keep public headers under `include/sigproc/`.
+**Done**
 
-## Building & Testing
+- `sig_header` ← `header`
+- `sig_bandpass` ← `bandpass`
+- `sig_decimate` ← `decimate`
+- `sig_chopfil` ← `chop_fil`
 
-- Requirements: **GCC >= 15** (or Clang >= 19) and **CMake >= 3.30**, plus
-  single-precision FFTW (with OpenMP) and Ninja. On a fresh machine these are
-  installed by `.cursor/install.sh`.
-- Configure and build:
+**Library in place (extend, do not replace):** `sigproc::io::SigprocHeader`,
+`FilterbankReader` / `FilterbankWriter`, `sigproc::bits`, `sigproc::kernels`,
+`sigproc::astro`, `sigproc::params`.
 
-  ```bash
-  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-  cmake --build build
-  ```
+**Next (library-first, then CLI):** fake / fast_fake, splice, extract,
+downsample, flatten, zerodm, clip / blanker, reader, filedit, dice, then
+dedisperse, fold, seek, RFI.
 
-- Enable the test suite with `-DBUILD_TESTING=ON` (Catch2). Enable docs with
-  `-DBUILD_DOCS=ON`.
-- Dependencies (spdlog, scnlib, CLI11, Catch2) are fetched via CPM; set
-  `CPM_SOURCE_CACHE` to cache downloads across builds.
+**Library types to add when a CLI needs them** (sigpyproc3-shaped, C++):
+`FilterbankBlock`, `TimeSeries`, `FourierSeries`, `FoldedCube`. Do not add them
+speculatively.
 
-## Cloud Agent Environment
+## How to add a tool
 
-- `.cursor/environment.json` + `.cursor/install.sh` define the Cloud Agent
-  environment so future branches build out of the box. Keep them in sync with
-  the build requirements above.
+1. Put the executable in `applications/sig_foo.cpp`. GLOB picks it up; do not
+   edit `applications/CMakeLists.txt` to list the file.
+2. Use CLI11. Reuse the library; do not reimplement header/IO/kernels in the
+   app.
+3. Match or exceed original SIGPROC behavior. Test format/numerics against the
+   original where practical.
+4. Do not pull in PGPLOT, PSRFITS, or historical backend converters.

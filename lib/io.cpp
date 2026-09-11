@@ -1,4 +1,4 @@
-#include "sigproc/io.hpp"
+#include <sigproc/io.hpp>
 
 #include <filesystem>
 #include <format>
@@ -6,8 +6,10 @@
 #include <string_view>
 #include <vector>
 
-#include <sigproc/detail/exceptions.hpp>
-#include <sigproc/detail/utils.hpp>
+#include <sigproc/bits.hpp>
+
+#include "sigproc/exceptions.hpp"
+#include "sigproc/utils.hpp"
 
 namespace sigproc::io {
 
