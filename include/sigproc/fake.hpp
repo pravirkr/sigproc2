@@ -44,7 +44,7 @@ struct FakeConfig {
     double snrpeak    = 1.0;
     double duty = 0.04; ///< Pulse width as a duty-cycle fraction (CLI `-width`
                         ///< is percent).
-    bool smear      = true;
+    bool smear  = true;
     bool headerless = false;
     bool evenodd    = false;
     bool fast       = false;
