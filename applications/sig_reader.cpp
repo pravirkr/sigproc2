@@ -38,11 +38,13 @@ int main(int argc, char** argv) {
 
     std::vector<int> chans;
     app.add_option("-c,--chan", chans,
-                   "Output only frequency channel c (1...nchans) (def=all)");
+                   "Output only frequency channel c (1...nchans) (def=all)")
+        ->allow_extra_args(false);
 
     std::vector<int> ifs;
     app.add_option("-i,--if", ifs,
-                   "Output only IF channel i (1...nifs) (def=all)");
+                   "Output only IF channel i (1...nifs) (def=all)")
+        ->allow_extra_args(false);
 
     bool numerate = false;
     app.add_flag("-numerate,--numerate", numerate,

@@ -166,7 +166,8 @@ int main(int argc, char** argv) {
 
     std::vector<std::string> time_zaps;
     app.add_option("--time-zap,-t", time_zaps,
-                   "Zap samples between start and end (\"s e\", 0-based)");
+                   "Zap samples between start and end (\"s e\", 0-based)")
+        ->allow_extra_args(false);
 
     std::string killfile;
     app.add_option("--tkill,-k", killfile,
