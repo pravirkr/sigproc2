@@ -1,10 +1,14 @@
 CPMFindPackage(
   NAME Catch2
-  VERSION 3.5.0
+  VERSION 3.4.0
   GITHUB_REPOSITORY catchorg/Catch2
 )
-list(APPEND CMAKE_MODULE_PATH ${Catch2_DIR})
-list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
+
+if(Catch2_SOURCE_DIR)
+  list(APPEND CMAKE_MODULE_PATH "${Catch2_SOURCE_DIR}/extras")
+elseif(Catch2_DIR)
+  list(APPEND CMAKE_MODULE_PATH "${Catch2_DIR}")
+endif()
 
 file(GLOB SIG_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 add_executable(tests ${SIG_TEST_SOURCES})

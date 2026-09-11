@@ -106,15 +106,10 @@ if(SIG_ENABLE_COVERAGE)
   endif()
 endif()
 
-# CPM.cmake Setup
-# Drop a stale CPM_DIRECTORY if the bootstrap path changed between configures.
-unset(CPM_DIRECTORY CACHE)
+# CPM: bundled deps by default; SIG_USE_SYSTEM_DEPS=ON prefers find_package first.
 include(cmake/CPM.cmake)
-if(NOT COMMAND CPMAddPackage)
-  message(FATAL_ERROR "CPM.cmake failed to define CPMAddPackage.")
-endif()
 set(CPM_USE_LOCAL_PACKAGES
-    ON
+    ${SIG_USE_SYSTEM_DEPS}
     CACHE BOOL "Try to find packages locally before downloading" FORCE
 )
 if(DEFINED ENV{CPM_SOURCE_CACHE})

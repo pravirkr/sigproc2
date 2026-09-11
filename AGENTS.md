@@ -123,7 +123,7 @@ fmt formatting can be used where `std::format` is not adequate.
 - fmt 12.1, spdlog 1.17 (header-only, spdlog uses external fmt)
 - CLI11 2.7 — applications
 - HighFive 3.3, xsimd 14 — build-tree only
-- Catch2 3.x — tests only (`-DSIG_BUILD_TESTING=ON`)
+- Catch2 3.4 — tests only (`-DSIG_BUILD_TESTING=ON`)
 
 Set `CPM_SOURCE_CACHE` to cache downloads. Cloud Agent setup:
 [`.cursor/environment.json`](.cursor/environment.json) and

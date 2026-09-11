@@ -40,6 +40,7 @@ jobs:
             libhdf5-dev \
             libfftw3-dev \
             libomp-dev \
+            catch2 \
             gcc-14 \
             g++-14 \
             clang-18
@@ -82,6 +83,7 @@ jobs:
             libhdf5-dev \
             libfftw3-dev \
             libomp-dev \
+            catch2 \
             gcc-14 \
             g++-14
 
@@ -123,6 +125,7 @@ jobs:
             libhdf5-dev \
             libfftw3-dev \
             libomp-dev \
+            catch2 \
             gcc-14 \
             g++-14 \
             gcovr
