@@ -5,9 +5,13 @@
 #include <climits>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <format>
 #include <fstream>
 #include <istream>
+#include <map>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -534,6 +538,176 @@ std::vector<char> SigprocHeader::tobuffer() const {
     }
     append_token(buffer, "HEADER_END");
     return buffer;
+}
+
+std::vector<std::byte> SigprocHeader::patched_raw_header(
+    const std::map<std::string, HeaderValue>& updates) const {
+    if (m_raw_header.empty()) {
+        throw std::runtime_error(
+            "patched_raw_header requires a header read from a file");
+    }
+    if (updates.empty()) {
+        return m_raw_header;
+    }
+
+    auto out      = m_raw_header;
+    std::size_t i = 0;
+    std::unordered_set<std::string> seen;
+
+    auto require = [&](std::size_t nbytes) {
+        if (i + nbytes > out.size()) {
+            throw std::runtime_error("truncated SIGPROC header while patching");
+        }
+    };
+    auto read_i32 = [&]() {
+        require(sizeof(std::int32_t));
+        std::int32_t len{};
+        std::memcpy(&len, out.data() + i, sizeof(len));
+        i += sizeof(len);
+        return len;
+    };
+    auto read_tok = [&]() {
+        const auto len = read_i32();
+        if (len < detail::header_codec::kMinStringLen ||
+            len > detail::header_codec::kMaxStringLen) {
+            throw std::runtime_error(
+                "invalid header token length while patching");
+        }
+        require(static_cast<std::size_t>(len));
+        std::string tok(reinterpret_cast<const char*>(out.data() + i),
+                        static_cast<std::size_t>(len));
+        i += static_cast<std::size_t>(len);
+        return tok;
+    };
+    auto write_bytes = [&](const void* src, std::size_t nbytes) {
+        require(nbytes);
+        std::memcpy(out.data() + i, src, nbytes);
+        i += nbytes;
+    };
+    auto skip = [&](std::size_t nbytes) {
+        require(nbytes);
+        i += nbytes;
+    };
+
+    auto payload_width = [](std::string_view key) -> std::size_t {
+        if (key == "signed") {
+            return 1;
+        }
+        if (key == "rawdatafile" || key == "source_name") {
+            return 0; // variable; handled separately
+        }
+        if (key == "barycentric" || key == "pulsarcentric") {
+            return 4;
+        }
+        const auto kit = params::kSigprocKeys.find(std::string(key));
+        if (kit == params::kSigprocKeys.end()) {
+            return 4;
+        }
+        switch (kit->second.type) {
+        case KeyType::kSDouble:
+            return 8;
+        case KeyType::kSString:
+            return 0;
+        case KeyType::kSInt:
+        case KeyType::kSBool:
+            return 4;
+        }
+        return 4;
+    };
+
+    auto apply_update = [&](std::string_view key, const HeaderValue& value) {
+        if (key == "signed") {
+            const auto* flag = std::get_if<bool>(&value);
+            if (flag == nullptr) {
+                throw std::invalid_argument("signed patch must be bool");
+            }
+            const auto byte = static_cast<std::int8_t>(*flag ? -1 : 1);
+            write_bytes(&byte, sizeof(byte));
+            return;
+        }
+        if (key == "barycentric" || key == "pulsarcentric") {
+            const auto* flag = std::get_if<bool>(&value);
+            if (flag == nullptr) {
+                throw std::invalid_argument(
+                    std::format("{} patch must be bool", key));
+            }
+            const auto v = static_cast<std::int32_t>(*flag ? 1 : 0);
+            write_bytes(&v, sizeof(v));
+            return;
+        }
+        const auto kit  = params::kSigprocKeys.find(std::string(key));
+        const auto type = kit == params::kSigprocKeys.end() ? KeyType::kSInt
+                                                            : kit->second.type;
+        if (type == KeyType::kSString || key == "rawdatafile" ||
+            key == "source_name") {
+            const auto* str = std::get_if<std::string>(&value);
+            if (str == nullptr) {
+                throw std::invalid_argument(
+                    std::format("{} patch must be string", key));
+            }
+            const auto len = read_i32();
+            if (len < detail::header_codec::kMinStringLen ||
+                len > detail::header_codec::kMaxStringLen) {
+                throw std::runtime_error("invalid on-disk string length");
+            }
+            require(static_cast<std::size_t>(len));
+            std::string padded(static_cast<std::size_t>(len), ' ');
+            const auto ncopy =
+                std::min(str->size(), static_cast<std::size_t>(len));
+            std::memcpy(padded.data(), str->data(), ncopy);
+            write_bytes(padded.data(), padded.size());
+            return;
+        }
+        if (type == KeyType::kSDouble) {
+            const auto* d = std::get_if<double>(&value);
+            if (d == nullptr) {
+                throw std::invalid_argument(
+                    std::format("{} patch must be double", key));
+            }
+            write_bytes(d, sizeof(*d));
+            return;
+        }
+        const auto* iv = std::get_if<int>(&value);
+        if (iv == nullptr) {
+            throw std::invalid_argument(
+                std::format("{} patch must be int", key));
+        }
+        const auto v = static_cast<std::int32_t>(*iv);
+        write_bytes(&v, sizeof(v));
+    };
+
+    if (read_tok() != "HEADER_START") {
+        throw std::runtime_error("patched_raw_header: missing HEADER_START");
+    }
+    while (i < out.size()) {
+        const auto tok = read_tok();
+        if (tok == "HEADER_END") {
+            break;
+        }
+        if (tok == "FREQUENCY_START" || tok == "FREQUENCY_END") {
+            continue;
+        }
+        const auto uit = updates.find(tok);
+        if (uit != updates.end()) {
+            seen.insert(tok);
+            apply_update(tok, uit->second);
+        } else if (tok == "rawdatafile" || tok == "source_name") {
+            const auto len = read_i32();
+            skip(static_cast<std::size_t>(len));
+        } else {
+            skip(payload_width(tok));
+        }
+    }
+
+    for (const auto& [key, value] : updates) {
+        (void)value;
+        if (!seen.contains(key)) {
+            throw std::invalid_argument(std::format(
+                "Cannot add header key '{}' (header length must not change)",
+                key));
+        }
+    }
+    return out;
 }
 
 } // namespace sigproc::io

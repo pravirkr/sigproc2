@@ -2,7 +2,9 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -226,4 +228,36 @@ TEST_CASE("tiny.fil vendor fixture parses") {
     REQUIRE(hdr.get<int>("nchans") == 8);
     REQUIRE(hdr.get<int>("nsamples") == 16);
     REQUIRE(hdr.get<std::string>("source_name") == "TINY");
+}
+
+TEST_CASE("patched_raw_header pads source_name and keeps encoded length") {
+    auto built = sigproc::test::make_tiny_header();
+    std::ostringstream encoded(std::ios::binary);
+    built.tostream(encoded);
+    std::istringstream in(encoded.str(), std::ios::binary);
+    sigproc::io::SigprocHeader hdr;
+    REQUIRE(hdr.fromstream(in));
+    const auto orig_size = hdr.raw_header().size();
+
+    const auto patched =
+        hdr.patched_raw_header({{"source_name", std::string("AB")}});
+    REQUIRE(patched.size() == orig_size);
+
+    std::string patched_bytes(reinterpret_cast<const char*>(patched.data()),
+                              patched.size());
+    std::istringstream pin(patched_bytes, std::ios::binary);
+    sigproc::io::SigprocHeader again;
+    REQUIRE(again.fromstream(pin));
+    REQUIRE(again.get<std::string>("source_name") == "AB  ");
+}
+
+TEST_CASE("patched_raw_header refuses keys that would grow the header") {
+    auto built = sigproc::test::make_tiny_header();
+    std::ostringstream encoded(std::ios::binary);
+    built.tostream(encoded);
+    std::istringstream in(encoded.str(), std::ios::binary);
+    sigproc::io::SigprocHeader hdr;
+    REQUIRE(hdr.fromstream(in));
+    REQUIRE_THROWS_AS(hdr.patched_raw_header({{"ibeam", 3}}),
+                      std::invalid_argument);
 }
