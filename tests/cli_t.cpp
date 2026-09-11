@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -40,6 +42,28 @@ std::string run_cmd(const std::string& cmd) {
 
 std::filesystem::path bin(std::string_view name) {
     return std::filesystem::path(SIG_BIN_DIR) / name;
+}
+
+void write_fil(const std::filesystem::path& path,
+               int nchans,
+               int nsamps,
+               double fch1,
+               double tstart,
+               const std::vector<float>& samples,
+               int nbits = 8) {
+    sigproc::io::SigprocHeader hdr;
+    hdr.set("source_name", std::string("CHAN"));
+    hdr.set("data_type", 1);
+    hdr.set("nchans", nchans);
+    hdr.set("nbits", nbits);
+    hdr.set("nifs", 1);
+    hdr.set("nsamples", nsamps);
+    hdr.set("fch1", fch1);
+    hdr.set("foff", -1.0);
+    hdr.set("tsamp", 0.001);
+    hdr.set("tstart", tstart);
+    sigproc::FilterbankWriter writer(path.string(), hdr);
+    writer.write_block(samples, static_cast<int>(samples.size()));
 }
 
 } // namespace
@@ -93,8 +117,8 @@ TEST_CASE("sig_chopfil copies header bytes and a packed time slice") {
     }
     const auto tmp = std::filesystem::temp_directory_path() / "chop_out.fil";
     const int rc   = std::system((bin("sig_chopfil").string() +
-                                  " -s 0 -r 0.016 " + fil.string() + " -o " +
-                                  tmp.string() + " >/dev/null 2>/dev/null")
+                                " -s 0 -r 0.016 " + fil.string() + " -o " +
+                                tmp.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     std::ifstream in_orig(fil, std::ios::binary);
@@ -146,9 +170,9 @@ TEST_CASE("sig_fake generates a file sig_header can read") {
     }
     const auto tmp = std::filesystem::temp_directory_path() / "fake_tiny.fil";
     const int rc   = std::system((bin("sig_fake").string() +
-                                  " -nchans 8 -nbits 8 -tsamp 1000 -tobs 0.016 "
+                                " -nchans 8 -nbits 8 -tsamp 1000 -tobs 0.016 "
                                   "-period 10 -dm 0 -seed 1 -nosmear -o " +
-                                  tmp.string() + " >/dev/null 2>/dev/null")
+                                tmp.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     const auto nchans =
@@ -177,8 +201,8 @@ TEST_CASE("sig_fast_fake default MJD is 56000 and 2-bit payload is in range") {
 
     const auto pay = std::filesystem::temp_directory_path() / "fast_fake.fil";
     const int rc   = std::system((bin("sig_fast_fake").string() +
-                                  " -T 0.000512 -t 64 -c 8 -b 2 -S 3 -o " +
-                                  pay.string() + " >/dev/null 2>/dev/null")
+                                " -T 0.000512 -t 64 -c 8 -b 2 -S 3 -o " +
+                                pay.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     sigproc::FilterbankReader reader(pay.string());
@@ -299,4 +323,176 @@ TEST_CASE("sig_downsample nadd=2 averages pairs and doubles tsamp") {
         }
     }
     std::filesystem::remove(tmp);
+}
+
+TEST_CASE("sig_splice --help lists -o") {
+    if (!std::filesystem::exists(bin("sig_splice"))) {
+        SKIP("sig_splice not available");
+    }
+    const auto help = run_cmd(bin("sig_splice").string() + " --help");
+    REQUIRE(help.find("-o") != std::string::npos);
+}
+
+TEST_CASE("sig_splice concatenates two 4-chan files and writes a freq table") {
+    if (!std::filesystem::exists(bin("sig_splice"))) {
+        SKIP("sig_splice not available");
+    }
+    const auto dir              = std::filesystem::temp_directory_path();
+    const auto a                = dir / "splice_a.fil";
+    const auto b                = dir / "splice_b.fil";
+    const auto out              = dir / "splice_out.fil";
+    const std::vector<float> sa = {1.F, 2.F, 3.F, 4.F, 9.F, 10.F, 11.F, 12.F};
+    const std::vector<float> sb = {5.F, 6.F, 7.F, 8.F, 13.F, 14.F, 15.F, 16.F};
+    write_fil(a, 4, 2, 1400.0, 50000.0, sa);
+    write_fil(b, 4, 2, 1396.0, 50000.0, sb);
+
+    const int rc = std::system((bin("sig_splice").string() + " " + a.string() +
+                                " " + b.string() + " -o " + out.string() +
+                                " >/dev/null 2>/dev/null")
+                                   .c_str());
+    REQUIRE(rc == 0);
+
+    sigproc::FilterbankReader reader(out.string());
+    REQUIRE(reader.hdr.get<int>("nchans") == 8);
+    REQUIRE(reader.hdr.has_freq_table());
+    REQUIRE_FALSE(reader.hdr.is_present("fch1"));
+    REQUIRE_FALSE(reader.hdr.is_present("foff"));
+    const auto freqs = reader.hdr.get_freq_table();
+    REQUIRE(freqs.size() == 8);
+    REQUIRE(freqs.front() == 1400.0);
+    REQUIRE(freqs[4] == 1396.0);
+
+    std::ifstream raw(out, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(raw)), {});
+    const auto keys = sigproc::test::header_key_order(
+        std::span<const char>(bytes.data(), bytes.size()));
+    REQUIRE(std::find(keys.begin(), keys.end(), "fch1") == keys.end());
+    REQUIRE(std::find(keys.begin(), keys.end(), "foff") == keys.end());
+    REQUIRE(std::find(keys.begin(), keys.end(), "FREQUENCY_START") !=
+            keys.end());
+
+    std::vector<float> block;
+    reader.read_block(0, 2, block);
+    REQUIRE(block == std::vector<float>{1.F, 2.F, 3.F, 4.F, 5.F, 6.F, 7.F, 8.F,
+                                        9.F, 10.F, 11.F, 12.F, 13.F, 14.F, 15.F,
+                                        16.F});
+    std::filesystem::remove(a);
+    std::filesystem::remove(b);
+    std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_splice throws on tstart mismatch") {
+    if (!std::filesystem::exists(bin("sig_splice"))) {
+        SKIP("sig_splice not available");
+    }
+    const auto dir             = std::filesystem::temp_directory_path();
+    const auto a               = dir / "splice_t0.fil";
+    const auto b               = dir / "splice_t1.fil";
+    const std::vector<float> s = {1.F, 2.F, 3.F, 4.F};
+    write_fil(a, 4, 1, 1400.0, 50000.0, s);
+    write_fil(b, 4, 1, 1396.0, 50001.0, s);
+    const int rc = std::system((bin("sig_splice").string() + " " + a.string() +
+                                " " + b.string() + " >/dev/null 2>/dev/null")
+                                   .c_str());
+    REQUIRE(rc != 0);
+    std::filesystem::remove(a);
+    std::filesystem::remove(b);
+}
+
+TEST_CASE("sig_dice --help mentions keep file") {
+    if (!std::filesystem::exists(bin("sig_dice"))) {
+        SKIP("sig_dice not available");
+    }
+    const auto help = run_cmd(bin("sig_dice").string() + " --help");
+    REQUIRE(help.find("keep") != std::string::npos);
+    REQUIRE(help.find("--collapse") != std::string::npos);
+}
+
+TEST_CASE("sig_dice keep 1 and 3 zeros channels 2 and 4") {
+    if (!std::filesystem::exists(bin("sig_dice"))) {
+        SKIP("sig_dice not available");
+    }
+    const auto dir  = std::filesystem::temp_directory_path();
+    const auto fil  = dir / "dice_in.fil";
+    const auto keep = dir / "dice_keep.txt";
+    const auto out  = dir / "dice_out.fil";
+    write_fil(fil, 4, 2, 1400.0, 50000.0,
+              {1.F, 2.F, 3.F, 4.F, 5.F, 6.F, 7.F, 8.F});
+    {
+        std::ofstream kf(keep);
+        kf << "1\n3\n";
+    }
+    const int rc = std::system((bin("sig_dice").string() + " " + fil.string() +
+                                " " + keep.string() + " -o " + out.string() +
+                                " >/dev/null 2>/dev/null")
+                                   .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(out.string());
+    REQUIRE(reader.hdr.get<int>("nchans") == 4);
+    REQUIRE(reader.hdr.get<double>("fch1") == 1400.0);
+    std::vector<float> block;
+    reader.read_block(0, 2, block);
+    REQUIRE(block ==
+            std::vector<float>{1.F, 0.F, 3.F, 0.F, 5.F, 0.F, 7.F, 0.F});
+    std::filesystem::remove(fil);
+    std::filesystem::remove(keep);
+    std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_dice 32-bit force-zeros is a superset of original nbits") {
+    if (!std::filesystem::exists(bin("sig_dice"))) {
+        SKIP("sig_dice not available");
+    }
+    const auto dir  = std::filesystem::temp_directory_path();
+    const auto fil  = dir / "dice32_in.fil";
+    const auto keep = dir / "dice32_keep.txt";
+    const auto out  = dir / "dice32_out.fil";
+    write_fil(fil, 4, 1, 1400.0, 50000.0, {10.F, 20.F, 30.F, 40.F}, 32);
+    {
+        std::ofstream kf(keep);
+        kf << "1\n3\n";
+    }
+    const int rc = std::system((bin("sig_dice").string() + " " + fil.string() +
+                                " " + keep.string() + " -o " + out.string() +
+                                " >/dev/null 2>/dev/null")
+                                   .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(out.string());
+    REQUIRE(reader.hdr.get<int>("nbits") == 32);
+    std::vector<float> block;
+    reader.read_block(0, 1, block);
+    REQUIRE(block == std::vector<float>{10.F, 0.F, 30.F, 0.F});
+    std::filesystem::remove(fil);
+    std::filesystem::remove(keep);
+    std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_dice --collapse drops zapped channels") {
+    if (!std::filesystem::exists(bin("sig_dice"))) {
+        SKIP("sig_dice not available");
+    }
+    const auto dir  = std::filesystem::temp_directory_path();
+    const auto fil  = dir / "dice_col_in.fil";
+    const auto keep = dir / "dice_col_keep.txt";
+    const auto out  = dir / "dice_col_out.fil";
+    write_fil(fil, 4, 1, 1400.0, 50000.0, {1.F, 2.F, 3.F, 4.F});
+    {
+        std::ofstream kf(keep);
+        kf << "1\n2\n";
+    }
+    const int rc = std::system((bin("sig_dice").string() + " --collapse " +
+                                fil.string() + " " + keep.string() + " -o " +
+                                out.string() + " >/dev/null 2>/dev/null")
+                                   .c_str());
+    REQUIRE(rc == 0);
+    sigproc::FilterbankReader reader(out.string());
+    REQUIRE(reader.hdr.get<int>("nchans") == 2);
+    REQUIRE_FALSE(reader.hdr.has_freq_table());
+    REQUIRE(reader.hdr.get<double>("fch1") == 1400.0);
+    std::vector<float> block;
+    reader.read_block(0, 1, block);
+    REQUIRE(block == std::vector<float>{1.F, 2.F});
+    std::filesystem::remove(fil);
+    std::filesystem::remove(keep);
+    std::filesystem::remove(out);
 }
