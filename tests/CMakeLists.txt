@@ -13,7 +13,8 @@ endif()
 file(GLOB SIG_TEST_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 add_executable(tests ${SIG_TEST_SOURCES})
 target_link_libraries(
-  tests PRIVATE ${SIG_LIBRARY_NAME} Catch2::Catch2WithMain ${SIG_COMPILE_OPTIONS} coverage_config
+  tests PRIVATE ${SIG_LIBRARY_NAME} Catch2::Catch2WithMain HDF5::HDF5 ${SIG_COMPILE_OPTIONS}
+                coverage_config
 )
 target_compile_definitions(
   tests PRIVATE SIG_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
