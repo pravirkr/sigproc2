@@ -1,10 +1,12 @@
+#include <sigproc/kernels.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
+#include <span>
 #include <stdexcept>
 #include <vector>
-
-#include <sigproc/kernels.hpp>
 
 namespace sigproc::kernels {
 
@@ -174,11 +176,11 @@ void dice_channels(std::span<const float> in,
     }
     const int out_nchans = collapse ? nkeep : nchans;
     const auto in_need   = static_cast<std::size_t>(nsamps) *
-                         static_cast<std::size_t>(nifs) *
-                         static_cast<std::size_t>(nchans);
-    const auto out_need = static_cast<std::size_t>(nsamps) *
-                          static_cast<std::size_t>(nifs) *
-                          static_cast<std::size_t>(out_nchans);
+                           static_cast<std::size_t>(nifs) *
+                           static_cast<std::size_t>(nchans);
+    const auto out_need  = static_cast<std::size_t>(nsamps) *
+                           static_cast<std::size_t>(nifs) *
+                           static_cast<std::size_t>(out_nchans);
     if (in.size() < in_need || out.size() < out_need) {
         throw std::invalid_argument("dice_channels: span too small");
     }
@@ -295,6 +297,52 @@ double pulse_phase(std::int64_t index, double tsamp, double period) {
     }
     const double turn = static_cast<double>(index + 1) * tsamp / period;
     return turn - std::floor(turn);
+}
+
+void zerodm_spectra(std::span<const float> in,
+                    std::span<float> out,
+                    int stride,
+                    float recenter,
+                    float clip_lo,
+                    float clip_hi) {
+    if (stride <= 0) {
+        throw std::invalid_argument("zerodm_spectra: stride must be > 0");
+    }
+    if (in.size() % static_cast<std::size_t>(stride) != 0) {
+        throw std::invalid_argument(
+            "zerodm_spectra: input size must be a multiple of stride");
+    }
+    if (out.size() < in.size()) {
+        throw std::invalid_argument("zerodm_spectra: output span too small");
+    }
+    const int nspec        = static_cast<int>(in.size() / stride);
+    const float* in_ptr    = in.data();
+    float* out_ptr         = out.data();
+    const int stride_i     = stride;
+    const float recenter_c = recenter;
+    const float clip_lo_c  = clip_lo;
+    const float clip_hi_c  = clip_hi;
+#pragma omp parallel for default(none)                                         \
+    shared(in_ptr, out_ptr, nspec, stride_i, recenter_c, clip_lo_c, clip_hi_c)
+    for (int t = 0; t < nspec; ++t) {
+        const float* row = in_ptr + static_cast<std::ptrdiff_t>(t) * stride_i;
+        double sum       = 0.0;
+        for (int c = 0; c < stride_i; ++c) {
+            sum += static_cast<double>(row[c]);
+        }
+        const auto isub =
+            static_cast<int>(std::round(sum / static_cast<double>(stride_i)));
+        float* out_row = out_ptr + static_cast<std::ptrdiff_t>(t) * stride_i;
+        for (int c = 0; c < stride_i; ++c) {
+            float x = row[c] - static_cast<float>(isub) + recenter_c;
+            if (x < clip_lo_c) {
+                x = clip_lo_c;
+            } else if (x > clip_hi_c) {
+                x = clip_hi_c;
+            }
+            out_row[c] = x;
+        }
+    }
 }
 
 } // namespace sigproc::kernels

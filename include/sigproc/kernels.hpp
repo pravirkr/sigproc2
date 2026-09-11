@@ -104,4 +104,22 @@ void clip_gulp(std::span<const float> in, std::span<float> out);
 [[nodiscard]] double
 pulse_phase(std::int64_t index, double tsamp, double period);
 
+/**
+ * @brief Deterministic zerodm of sample-major spectra (K34).
+ *
+ * For each spectrum of `stride` values (`nchans * nifs`): `isub =
+ * round(mean)`; each sample becomes `clamp(x - isub + recenter, clip_lo,
+ * clip_hi)`. No dither. `in` and `out` may alias. `in.size()` must be a
+ * multiple of `stride`.
+ *
+ * 8-bit SIGPROC: `recenter=64`, clip `[0, 255]`. `--float` uses
+ * `recenter=0` and unbounded clips.
+ */
+void zerodm_spectra(std::span<const float> in,
+                    std::span<float> out,
+                    int stride,
+                    float recenter = 64.0F,
+                    float clip_lo  = 0.0F,
+                    float clip_hi  = 255.0F);
+
 } // namespace sigproc::kernels

@@ -150,3 +150,27 @@ TEST_CASE("pulse_phase matches blanker.c turn += tsamp/period") {
     REQUIRE_THAT(sigproc::kernels::pulse_phase(50, tsamp, period),
                  Catch::Matchers::WithinAbs(0.51, 1e-12));
 }
+
+TEST_CASE("zerodm_spectra all-100 spectrum becomes all 64") {
+    const std::vector<float> in(8, 100.F);
+    std::vector<float> out(8, -1.F);
+    sigproc::kernels::zerodm_spectra(in, out, 4);
+    REQUIRE(out == std::vector<float>(8, 64.F));
+}
+
+TEST_CASE("zerodm_spectra clamps to 0 and 255") {
+    std::vector<float> in{0.F, 0.F, 0.F, 255.F};
+    std::vector<float> out(4);
+    sigproc::kernels::zerodm_spectra(in, out, 4);
+    // mean = 63.75, round = 64; 0-64+64=0; 255-64+64=255
+    REQUIRE(out[0] == 0.F);
+    REQUIRE(out[3] == 255.F);
+}
+
+TEST_CASE("zerodm_spectra --float path subtracts mean with no clamp") {
+    const std::vector<float> in{10.F, 20.F, 30.F, 40.F};
+    std::vector<float> out(4);
+    sigproc::kernels::zerodm_spectra(in, out, 4, 0.0F, -1.0e30F, 1.0e30F);
+    REQUIRE_THAT(out[0], Catch::Matchers::WithinAbs(-15.F, 1e-5F));
+    REQUIRE_THAT(out[3], Catch::Matchers::WithinAbs(15.F, 1e-5F));
+}

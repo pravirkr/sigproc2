@@ -186,6 +186,17 @@ public:
     /// @brief True if `key` is in the encode write-set.
     [[nodiscard]] bool is_present(std::string_view key) const noexcept;
 
+    /**
+     * @brief Patch present keys in `raw_header()` without changing length.
+     *
+     * Strings are space-padded or truncated to the existing on-disk length
+     * (original `filedit`). Throws if `raw_header()` is empty, a key is
+     * absent from the on-disk header, or a value would need a different
+     * encoded width.
+     */
+    [[nodiscard]] std::vector<std::byte>
+    patched_raw_header(const std::map<std::string, HeaderValue>& updates) const;
+
 private:
     std::unordered_map<std::string, HeaderValue> m_data;
     std::vector<std::string> m_file_order;

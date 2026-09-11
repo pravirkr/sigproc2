@@ -137,8 +137,8 @@ TEST_CASE("sig_chopfil copies header bytes and a packed time slice") {
     }
     const auto tmp = std::filesystem::temp_directory_path() / "chop_out.fil";
     const int rc   = std::system((bin("sig_chopfil").string() +
-                                " -s 0 -r 0.016 " + fil.string() + " -o " +
-                                tmp.string() + " >/dev/null 2>/dev/null")
+                                  " -s 0 -r 0.016 " + fil.string() + " -o " +
+                                  tmp.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     std::ifstream in_orig(fil, std::ios::binary);
@@ -190,9 +190,9 @@ TEST_CASE("sig_fake generates a file sig_header can read") {
     }
     const auto tmp = std::filesystem::temp_directory_path() / "fake_tiny.fil";
     const int rc   = std::system((bin("sig_fake").string() +
-                                " -nchans 8 -nbits 8 -tsamp 1000 -tobs 0.016 "
+                                  " -nchans 8 -nbits 8 -tsamp 1000 -tobs 0.016 "
                                   "-period 10 -dm 0 -seed 1 -nosmear -o " +
-                                tmp.string() + " >/dev/null 2>/dev/null")
+                                  tmp.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     const auto nchans =
@@ -221,8 +221,8 @@ TEST_CASE("sig_fast_fake default MJD is 56000 and 2-bit payload is in range") {
 
     const auto pay = std::filesystem::temp_directory_path() / "fast_fake.fil";
     const int rc   = std::system((bin("sig_fast_fake").string() +
-                                " -T 0.000512 -t 64 -c 8 -b 2 -S 3 -o " +
-                                pay.string() + " >/dev/null 2>/dev/null")
+                                  " -T 0.000512 -t 64 -c 8 -b 2 -S 3 -o " +
+                                  pay.string() + " >/dev/null 2>/dev/null")
                                      .c_str());
     REQUIRE(rc == 0);
     sigproc::FilterbankReader reader(pay.string());
@@ -662,4 +662,153 @@ TEST_CASE("sig_blanker blanks phase 0.25-0.5 of a 1 s period") {
     }
     std::filesystem::remove(tim);
     std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_zerodm --help lists -s -r and documents deterministic mean") {
+    if (!std::filesystem::exists(bin("sig_zerodm"))) {
+        SKIP("sig_zerodm not available");
+    }
+    const auto help = run_cmd(bin("sig_zerodm").string() + " --help");
+    REQUIRE(help.find("-s") != std::string::npos);
+    REQUIRE(help.find("-r") != std::string::npos);
+    REQUIRE(help.find("64") != std::string::npos);
+}
+
+TEST_CASE("sig_zerodm all-100 spectra become 64 and header bytes match") {
+    if (!std::filesystem::exists(bin("sig_zerodm"))) {
+        SKIP("sig_zerodm not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "zerodm_in.fil";
+    const auto out = dir / "zerodm_out.fil";
+    write_fil(fil, 4, 4, 1400.0, 50000.0, std::vector<float>(16, 100.F));
+
+    const int rc =
+        std::system((bin("sig_zerodm").string() + " " + fil.string() + " -o " +
+                     out.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+
+    sigproc::io::SigprocHeader in_hdr;
+    REQUIRE(in_hdr.fromfile(fil.string()));
+    sigproc::io::SigprocHeader out_hdr;
+    REQUIRE(out_hdr.fromfile(out.string()));
+    REQUIRE(std::equal(in_hdr.raw_header().begin(), in_hdr.raw_header().end(),
+                       out_hdr.raw_header().begin(),
+                       out_hdr.raw_header().end()));
+
+    sigproc::FilterbankReader reader(out.string());
+    std::vector<float> block;
+    reader.read_block(0, 4, block);
+    REQUIRE(block == std::vector<float>(16, 64.F));
+    std::filesystem::remove(fil);
+    std::filesystem::remove(out);
+}
+
+TEST_CASE("sig_reader dumps a 2x2 32-bit file and -c 1 selects channel 1") {
+    if (!std::filesystem::exists(bin("sig_reader"))) {
+        SKIP("sig_reader not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "reader_2x2.fil";
+    write_fil(fil, 2, 2, 1400.0, 50000.0, {1.F, 2.F, 3.F, 4.F}, 32);
+
+    const auto dump = run_cmd(bin("sig_reader").string() + " " + fil.string());
+    REQUIRE(dump.find("1.000000") != std::string::npos);
+    REQUIRE(dump.find("2.000000") != std::string::npos);
+    REQUIRE(dump.find("3.000000") != std::string::npos);
+    REQUIRE(dump.find("4.000000") != std::string::npos);
+
+    const auto ch1 =
+        run_cmd(bin("sig_reader").string() + " -c 1 " + fil.string());
+    REQUIRE(ch1.find("1.000000") != std::string::npos);
+    REQUIRE(ch1.find("3.000000") != std::string::npos);
+    REQUIRE(ch1.find("2.000000") == std::string::npos);
+    REQUIRE(ch1.find("4.000000") == std::string::npos);
+    std::filesystem::remove(fil);
+}
+
+TEST_CASE("sig_reader -stream emits START/STOP") {
+    if (!std::filesystem::exists(bin("sig_reader"))) {
+        SKIP("sig_reader not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "reader_stream.fil";
+    write_fil(fil, 2, 1, 1400.0, 50000.0, {9.F, 8.F}, 32);
+    const auto out = run_cmd(bin("sig_reader").string() + " -stream -noindex " +
+                             fil.string());
+    REQUIRE(out.find("#START") != std::string::npos);
+    REQUIRE(out.find("#STOP") != std::string::npos);
+    REQUIRE(out.find("9.000000") != std::string::npos);
+    std::filesystem::remove(fil);
+}
+
+TEST_CASE("sig_filedit --help lists original short flags") {
+    if (!std::filesystem::exists(bin("sig_filedit"))) {
+        SKIP("sig_filedit not available");
+    }
+    const auto help = run_cmd(bin("sig_filedit").string() + " --help");
+    REQUIRE(help.find("--src-name") != std::string::npos);
+    REQUIRE(help.find("--dry-run") != std::string::npos);
+    REQUIRE(help.find("--time-zap") != std::string::npos);
+    REQUIRE(help.find("-r") != std::string::npos);
+}
+
+TEST_CASE("sig_filedit --dry-run prints a diff and does not mutate") {
+    if (!std::filesystem::exists(bin("sig_filedit"))) {
+        SKIP("sig_filedit not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "filedit_dry.fil";
+    write_fil(fil, 4, 2, 1400.0, 50000.0,
+              {1.F, 2.F, 3.F, 4.F, 5.F, 6.F, 7.F, 8.F});
+    std::ifstream before_in(fil, std::ios::binary);
+    const std::string before((std::istreambuf_iterator<char>(before_in)), {});
+
+    const auto dump = run_cmd(bin("sig_filedit").string() +
+                              " --dry-run --src-name TEST " + fil.string());
+    REQUIRE(dump.find("source_name") != std::string::npos);
+    REQUIRE(dump.find("TEST") != std::string::npos);
+
+    std::ifstream after_in(fil, std::ios::binary);
+    const std::string after((std::istreambuf_iterator<char>(after_in)), {});
+    REQUIRE(before == after);
+    std::filesystem::remove(fil);
+}
+
+TEST_CASE("sig_filedit same-length source_name edit and zap to zero") {
+    if (!std::filesystem::exists(bin("sig_filedit")) ||
+        !std::filesystem::exists(bin("sig_header"))) {
+        SKIP("sig_filedit or sig_header not available");
+    }
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto fil = dir / "filedit_edit.fil";
+    write_fil(fil, 4, 2, 1400.0, 50000.0,
+              {10.F, 20.F, 30.F, 40.F, 50.F, 60.F, 70.F, 80.F});
+    const auto size_before = std::filesystem::file_size(fil);
+
+    const int rc_name =
+        std::system((bin("sig_filedit").string() + " --src-name ABCD " +
+                     fil.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc_name == 0);
+    const auto name =
+        run_cmd(bin("sig_header").string() + " -source_name " + fil.string());
+    REQUIRE(name.find("ABCD") != std::string::npos);
+    REQUIRE(std::filesystem::file_size(fil) == size_before);
+
+    const int rc_zap =
+        std::system((bin("sig_filedit").string() + " -t \"1 2\" -Z " +
+                     fil.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc_zap == 0);
+    REQUIRE(std::filesystem::file_size(fil) == size_before);
+    sigproc::FilterbankReader reader(fil.string());
+    std::vector<float> block;
+    reader.read_block(0, 2, block);
+    REQUIRE(block.size() == 8);
+    REQUIRE(block[0] == 10.F);
+    REQUIRE(block[4] == 0.F);
+    REQUIRE(block[7] == 0.F);
+    std::filesystem::remove(fil);
 }
