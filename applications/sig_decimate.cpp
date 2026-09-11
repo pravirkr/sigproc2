@@ -23,6 +23,7 @@
 int main(int argc, char** argv) {
     CLI::App app{"decimate - reduce time and/or frequency resolution of "
                  "filterbank data"};
+    sigproc::cli::configure_app(app);
 
     std::string filename;
     sigproc::cli::add_input_file(app, filename);

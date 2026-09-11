@@ -15,6 +15,14 @@ inline constexpr int kDefaultGulp = 16384;
     return path.empty() || path == "-";
 }
 
+inline void configure_app(CLI::App& app) {
+    // Original SIGPROC flags are single-dash long names (`-tsamp`,
+    // `-telescope`). Default `-h` would collide with `-headersize` /
+    // `-headerless`.
+    app.allow_non_standard_option_names();
+    app.set_help_flag("--help", "Print this help message and exit");
+}
+
 inline void init_logging(bool verbose, bool debug) {
     if (debug) {
         spdlog::set_level(spdlog::level::debug);

@@ -21,6 +21,7 @@
 
 int main(int argc, char** argv) {
     CLI::App app{"bandpass - outputs the band pass from a filterbank file"};
+    sigproc::cli::configure_app(app);
 
     std::string filename;
     sigproc::cli::add_input_file(app, filename);

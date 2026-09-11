@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -68,4 +69,60 @@ TEST_CASE("sig_header --help lists original short flags") {
     REQUIRE(help.find("-tsamp") != std::string::npos);
     REQUIRE(help.find("-fch1") != std::string::npos);
     REQUIRE(help.find("-scan_number") != std::string::npos);
+}
+
+TEST_CASE("sig_bandpass -d 1 emits #START/#STOP") {
+    const auto fil = std::filesystem::path(SIG_TEST_DATA_DIR) / "tiny.fil";
+    if (!std::filesystem::exists(bin("sig_bandpass")) ||
+        !std::filesystem::exists(fil)) {
+        SKIP("sig_bandpass or tiny.fil not available");
+    }
+    const auto out =
+        run_cmd(bin("sig_bandpass").string() + " -d 1 " + fil.string());
+    REQUIRE(out.find("#START") != std::string::npos);
+    REQUIRE(out.find("#STOP") != std::string::npos);
+}
+
+TEST_CASE("sig_chopfil copies header bytes and a packed time slice") {
+    const auto fil = std::filesystem::path(SIG_TEST_DATA_DIR) / "tiny.fil";
+    if (!std::filesystem::exists(bin("sig_chopfil")) ||
+        !std::filesystem::exists(fil)) {
+        SKIP("sig_chopfil or tiny.fil not available");
+    }
+    const auto tmp = std::filesystem::temp_directory_path() / "chop_out.fil";
+    const int rc   = std::system((bin("sig_chopfil").string() +
+                                  " -s 0 -r 0.016 " + fil.string() + " -o " +
+                                  tmp.string() + " >/dev/null 2>/dev/null")
+                                     .c_str());
+    REQUIRE(rc == 0);
+    std::ifstream in_orig(fil, std::ios::binary);
+    std::ifstream in_out(tmp, std::ios::binary);
+    std::string orig((std::istreambuf_iterator<char>(in_orig)), {});
+    std::string chopped((std::istreambuf_iterator<char>(in_out)), {});
+    sigproc::io::SigprocHeader hdr;
+    REQUIRE(hdr.fromfile(fil.string()));
+    const auto hsize = static_cast<std::size_t>(hdr.get<int>("header_size"));
+    REQUIRE(chopped.size() >= hsize);
+    REQUIRE(chopped.substr(0, hsize) == orig.substr(0, hsize));
+    REQUIRE(chopped.size() == orig.size()); // 16 samples at 0.016 s
+    std::filesystem::remove(tmp);
+}
+
+TEST_CASE("sig_decimate omitted -c adds all channels") {
+    const auto fil = std::filesystem::path(SIG_TEST_DATA_DIR) / "tiny.fil";
+    if (!std::filesystem::exists(bin("sig_decimate")) ||
+        !std::filesystem::exists(fil)) {
+        SKIP("sig_decimate or tiny.fil not available");
+    }
+    const auto tmp = std::filesystem::temp_directory_path() / "dec_out.fil";
+    const int rc =
+        std::system((bin("sig_decimate").string() + " -t 2 " + fil.string() +
+                     " -o " + tmp.string() + " >/dev/null 2>/dev/null")
+                        .c_str());
+    REQUIRE(rc == 0);
+    sigproc::io::SigprocHeader hdr;
+    REQUIRE(hdr.fromfile(tmp.string()));
+    REQUIRE(hdr.get<int>("nchans") == 1);
+    REQUIRE(hdr.get<int>("nsamples") == 8);
+    std::filesystem::remove(tmp);
 }

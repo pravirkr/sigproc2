@@ -124,6 +124,7 @@ load_header(const std::string& filename) {
 
 int main(int argc, char** argv) {
     CLI::App app{"header - examine header parameters of filterbank data"};
+    sigproc::cli::configure_app(app);
     app.footer("Original short flags keep original units. -tsamp prints "
                "microseconds; -k tsamp prints seconds.");
 

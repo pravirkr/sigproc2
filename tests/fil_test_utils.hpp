@@ -34,6 +34,62 @@ inline void append_f64(std::vector<char>& buf, double value) {
     buf.insert(buf.end(), p, p + sizeof(value));
 }
 
+[[nodiscard]] inline const char* find_key_payload(std::string_view bytes,
+                                                  std::string_view key) {
+    std::size_t i = 0;
+    auto read_i32 = [&]() {
+        std::int32_t len{};
+        std::memcpy(&len, bytes.data() + i, 4);
+        i += 4;
+        return len;
+    };
+    auto read_tok = [&]() {
+        const auto len = read_i32();
+        std::string s(bytes.data() + i, static_cast<std::size_t>(len));
+        i += static_cast<std::size_t>(len);
+        return s;
+    };
+    auto skip_value = [&](std::string_view tok) {
+        if (tok == "FREQUENCY_START" || tok == "FREQUENCY_END") {
+            return;
+        }
+        if (tok == "signed") {
+            i += 1;
+            return;
+        }
+        if (tok == "fchannel") {
+            i += 8;
+            return;
+        }
+        if (tok == "rawdatafile" || tok == "source_name") {
+            (void)read_tok();
+            return;
+        }
+        if (tok == "tstart" || tok == "tsamp" || tok == "fch1" ||
+            tok == "foff" || tok == "refdm" || tok == "period" ||
+            tok == "az_start" || tok == "za_start" || tok == "src_raj" ||
+            tok == "src_dej") {
+            i += 8;
+            return;
+        }
+        i += 4; // int32 including barycentric/pulsarcentric
+    };
+    if (read_tok() != "HEADER_START") {
+        return nullptr;
+    }
+    while (i + 4 <= bytes.size()) {
+        const auto tok = read_tok();
+        if (tok == "HEADER_END") {
+            break;
+        }
+        if (tok == key) {
+            return bytes.data() + i;
+        }
+        skip_value(tok);
+    }
+    return nullptr;
+}
+
 [[nodiscard]] inline std::vector<std::string>
 header_key_order(std::span<const char> bytes) {
     std::vector<std::string> keys;
@@ -73,7 +129,6 @@ header_key_order(std::span<const char> bytes) {
         } else if (tok == "barycentric" || tok == "pulsarcentric") {
             i += 4;
         } else {
-            // int32 or float64
             i += (tok == "tstart" || tok == "tsamp" || tok == "fch1" ||
                   tok == "foff" || tok == "refdm" || tok == "period" ||
                   tok == "az_start" || tok == "za_start" || tok == "src_raj" ||

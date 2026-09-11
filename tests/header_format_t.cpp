@@ -62,33 +62,11 @@ TEST_CASE("barycentric is four bytes on disk and signed is one byte +1") {
     std::ostringstream out(std::ios::binary);
     hdr.tostream(out);
     const auto bytes = out.str();
-
-    auto find_payload = [&](std::string_view key) -> const char* {
-        std::size_t i = 0;
-        while (i + 4 <= bytes.size()) {
-            std::int32_t len{};
-            std::memcpy(&len, bytes.data() + i, 4);
-            i += 4;
-            REQUIRE(len >= 1);
-            REQUIRE(i + static_cast<std::size_t>(len) <= bytes.size());
-            std::string_view tok(bytes.data() + i,
-                                 static_cast<std::size_t>(len));
-            i += static_cast<std::size_t>(len);
-            if (tok == key) {
-                return bytes.data() + i;
-            }
-            if (tok == "HEADER_END") {
-                break;
-            }
-        }
-        return nullptr;
-    };
-
-    const char* bary = find_payload("barycentric");
+    const char* bary = sigproc::test::find_key_payload(bytes, "barycentric");
     REQUIRE(bary != nullptr);
     REQUIRE(load_i32(bary) == 1);
 
-    const char* sgn = find_payload("signed");
+    const char* sgn = sigproc::test::find_key_payload(bytes, "signed");
     REQUIRE(sgn != nullptr);
     REQUIRE(static_cast<std::int8_t>(*sgn) == 1);
 }
