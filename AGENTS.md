@@ -178,14 +178,17 @@ executables. `lib/sigproc/` is not installed.
 - `sig_downsample` ← `downsample`
 - `sig_splice` ← `splice` (always `FREQUENCY_START` table)
 - `sig_dice` ← `dice` (1-based keep file; default force-zeros)
+- `sig_flatten` ← `flatten` (`TimeSeries`, gulp-median, `data_type=2`)
+- `sig_clip` ← `clip` (gulp `|x-median|>sigma` → median, `data_type=2`)
+- `sig_blanker` ← `blanker` (constant `-P` period; no polyco)
 
 **Library in place (extend, do not replace):** `sigproc::io::SigprocHeader`,
 `FilterbankReader` / `FilterbankWriter`, `sigproc::bits`, `sigproc::kernels`,
-`sigproc::astro`, `sigproc::params`, `sigproc::fake`.
+`sigproc::astro`, `sigproc::params`, `sigproc::fake`, `sigproc::TimeSeries`.
 
-**Next (library-first, then CLI):** flatten (`TimeSeries`), zerodm, clip /
-blanker, reader, filedit, then FBH5 (PR-19). Dedisperse / fold / seek / RFI /
-tree wait for [`docs/future-plan.md`](docs/future-plan.md).
+**Next (library-first, then CLI):** zerodm, reader, filedit, then FBH5 (PR-19).
+Dedisperse / fold / seek / RFI / tree wait for
+[`docs/future-plan.md`](docs/future-plan.md).
 
 **Library types to add when a CLI needs them** (sigpyproc3-shaped, C++):
 `FilterbankBlock`, `TimeSeries`, `FourierSeries`, `FoldedCube`. Do not add them
